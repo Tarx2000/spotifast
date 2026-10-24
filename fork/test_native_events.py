@@ -12,6 +12,7 @@ import time
 source = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--binary', type=Path, required=True)
+parser.add_argument('--external', action='store_true', help='Also requires macOS permission for osascript to control the fixture.')
 args = parser.parse_args()
 (source/'target').mkdir(exist_ok=True)
 fixture = tempfile.TemporaryDirectory(prefix='native-events-', dir=source/'target')
@@ -41,12 +42,21 @@ script = f'''tell application "{app}"
     previous track
     return valid
 end tell'''
-process = subprocess.Popen([str(contents/'MacOS/Fixture')], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+script_path = Path(fixture.name)/'test.applescript'
+script_path.write_text(script)
+command = [str(contents/'MacOS/Fixture')]
+if not args.external:
+    command += ['--self-test', str(script_path)]
+process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 try:
-    time.sleep(2)
-    answer = subprocess.run(['osascript','-e',script],capture_output=True,text=True,timeout=10)
-    print('AppleScript exit:',answer.returncode,'result:',answer.stdout.strip(),'error:',answer.stderr.strip(),flush=True)
-    time.sleep(0.2)
+    if args.external:
+        time.sleep(2)
+        answer = subprocess.run(['osascript','-e',script],capture_output=True,text=True,timeout=10)
+        print('AppleScript exit:',answer.returncode,'result:',answer.stdout.strip(),'error:',answer.stderr.strip(),flush=True)
+        assert answer.returncode == 0 and answer.stdout.strip() == 'true'
+        time.sleep(0.2)
+    else:
+        process.wait(timeout=30)
 finally:
     if process.poll() is None: process.terminate()
     stdout, stderr = process.communicate(timeout=5)
@@ -54,7 +64,8 @@ finally:
     subprocess.run(['/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister', '-u', str(app)], check=False, capture_output=True)
     fixture.cleanup()
 
-assert answer.returncode == 0 and answer.stdout.strip() == 'true'
+if not args.external:
+    assert process.returncode == 0 and 'AppleScript result: true' in stdout
 for command in ['SetVolume(37)', 'SeekTo(45500)', 'SetShuffle(false)', 'SetRepeat(Off)',
                 'Play', 'Pause', 'PlayPause', 'Next', 'Previous']:
     assert command in stdout, command

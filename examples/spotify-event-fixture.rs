@@ -21,6 +21,29 @@ fn main() {
         volume: 37,
         ..Snapshot::default()
     });
+    if std::env::args().nth(1).as_deref() == Some("--self-test") {
+        use objc2::AnyThread;
+        use objc2_foundation::{NSAppleScript, NSString};
+
+        let path = std::env::args().nth(2).expect("AppleScript source path");
+        let source = NSString::from_str(&std::fs::read_to_string(path).unwrap());
+        let script = NSAppleScript::initWithSource(NSAppleScript::alloc(), &source).unwrap();
+        let mut error = None;
+        // SAFETY: the bindings infer the documented NSString/AnyObject dictionary.
+        // Both script creation and execution stay on the main thread. All events
+        // target this fixture, so CI never prompts to control another app.
+        let answer = unsafe { script.executeAndReturnError(Some(&mut error)) };
+        assert!(error.is_none(), "AppleScript execution failed: {error:?}");
+        assert!(
+            answer.booleanValue() != 0,
+            "AppleScript metadata checks failed"
+        );
+        println!("AppleScript result: true");
+        for command in std::mem::take(&mut *queue.lock().unwrap()) {
+            println!("{command:?}");
+        }
+        return;
+    }
     std::thread::spawn(move || {
         for _ in 0..600 {
             for command in std::mem::take(&mut *queue.lock().unwrap()) {

@@ -112,6 +112,10 @@ python3 fork/package.py --binary target/release/spotifast --output dist/personal
 `examples/spotify-event-fixture.rs` dient ausschließlich dem isolierten
 AppleScript-Test mit erfundenen Metadaten. Es öffnet kein Benutzerprofil und
 ist kein Teil des ausgelieferten App-Programms.
+Der automatisierte Test sendet echte AppleScript-Befehle an denselben
+Testprozess und benötigt deshalb keinen Dialog zur Steuerung einer anderen
+App. Mit `fork/test_native_events.py --binary ... --external` kann zusätzlich
+der externe Zugriff über `osascript` mit macOS-Freigabe geprüft werden.
 
 Die Originalquellen und ihre MIT-Lizenz bleiben erhalten. Das verwendete
 Icon stammt aus [Spotifys offiziellen Designressourcen](https://developer.spotify.com/documentation/design).

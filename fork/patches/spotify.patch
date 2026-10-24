@@ -1,22 +1,27 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 9e785bc198e5843c835f6da34e7c1400e1dc5c56..25c6a7fb448a2c2c2f6a24387de3679bcc60cd56 100644
+index 9e785bc198e5843c835f6da34e7c1400e1dc5c56..ecde599b9aa22999e396914994dd93fbe6e488fd 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -199,7 +199,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std",
+@@ -199,7 +199,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std",
  # macOS hands an app registered for the scheme (src/mac_links.rs), and
  # NSRunLoop has the delayed perform that minimizes the window
  # (src/window.rs).
 -objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSAttributedString", "NSData"] }
 +objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSDistributedNotificationCenter", "NSAttributedString", "NSData"] }
++
++[target.'cfg(target_os = "macos")'.dev-dependencies]
++# Only the isolated integration fixture executes AppleScript. Sending events
++# to itself exercises the real handlers without an Automation permission UI.
++objc2-foundation = { version = "0.3", default-features = false, features = ["NSAppleScript"] }
  
  [target.'cfg(windows)'.dependencies]
  windows-native-keyring-store = { version = "1.1", default-features = false }
 diff --git a/examples/spotify-event-fixture.rs b/examples/spotify-event-fixture.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..e5fb7678b6b9d146599c8f2a2e674911f824e3e0
+index 0000000000000000000000000000000000000000..0cef0931fd65f6e1caa5a8c0f79d39d2471cdc6e
 --- /dev/null
 +++ b/examples/spotify-event-fixture.rs
-@@ -0,0 +1,37 @@
+@@ -0,0 +1,60 @@
 +//! Isolated Apple Events fixture. Never opens a profile or starts playback.
 +#[cfg(target_os = "macos")]
 +fn main() {
@@ -40,6 +45,29 @@ index 0000000000000000000000000000000000000000..e5fb7678b6b9d146599c8f2a2e674911
 +        volume: 37,
 +        ..Snapshot::default()
 +    });
++    if std::env::args().nth(1).as_deref() == Some("--self-test") {
++        use objc2::AnyThread;
++        use objc2_foundation::{NSAppleScript, NSString};
++
++        let path = std::env::args().nth(2).expect("AppleScript source path");
++        let source = NSString::from_str(&std::fs::read_to_string(path).unwrap());
++        let script = NSAppleScript::initWithSource(NSAppleScript::alloc(), &source).unwrap();
++        let mut error = None;
++        // SAFETY: the bindings infer the documented NSString/AnyObject dictionary.
++        // Both script creation and execution stay on the main thread. All events
++        // target this fixture, so CI never prompts to control another app.
++        let answer = unsafe { script.executeAndReturnError(Some(&mut error)) };
++        assert!(error.is_none(), "AppleScript execution failed: {error:?}");
++        assert!(
++            answer.booleanValue() != 0,
++            "AppleScript metadata checks failed"
++        );
++        println!("AppleScript result: true");
++        for command in std::mem::take(&mut *queue.lock().unwrap()) {
++            println!("{command:?}");
++        }
++        return;
++    }
 +    std::thread::spawn(move || {
 +        for _ in 0..600 {
 +            for command in std::mem::take(&mut *queue.lock().unwrap()) {

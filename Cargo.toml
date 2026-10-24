@@ -201,6 +201,11 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std", 
 # (src/window.rs).
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAppleEventDescriptor", "NSAppleEventManager", "NSDate", "NSObjCRuntime", "NSRunLoop", "NSString", "NSThread", "NSDictionary", "NSDistributedNotificationCenter", "NSAttributedString", "NSData"] }
 
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+# Only the isolated integration fixture executes AppleScript. Sending events
+# to itself exercises the real handlers without an Automation permission UI.
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSAppleScript"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-native-keyring-store = { version = "1.1", default-features = false }
 # Message loops, the taskbar thumbnail buttons and window styles, and DPAPI
