@@ -12,22 +12,35 @@ pub use fastframe_update::{
 };
 use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
 
+/// Non-notarized personal builds use an explicit GitHub download.
+pub const MANUAL_DOWNLOADS: bool = cfg!(target_os = "macos");
+
+/// A release may never send this personal build back to upstream binaries.
+pub fn download_page(url: &str) -> &str {
+    if url.starts_with("https://github.com/Tarx2000/spotifast/releases/tag/") {
+        url
+    } else {
+        crate::spotify_compat::RELEASES_URL
+    }
+}
+
 pub const CONFIG: UpdateConfig = UpdateConfig {
     macos: MacConfig {
-        bundle_ids: &["rocks.spotifast.Spotifast"],
-        executable_names: &["Spotifast"],
+        bundle_ids: &["com.spotify.client"],
+        executable_names: &["Spotify"],
         legacy_bundle_names: &[],
     },
     // Releases publish an Ed25519 signature for checksums.txt. Require it
     // before downloading an update, using the release workflow's public key.
-    publisher_key: Some(include_str!("../assets/update-public-key.hex")),
+    publisher_key: Some(include_str!("../fork/update-public-key.hex")),
     // Releases build their AppImages before publishing, so the signed
     // checksums.txt lists them (#737): an AppImage replaces itself with the
     // next one.
+    mac_target: fastframe_update::MacTarget::Arm64Only,
     appimage: true,
     ..UpdateConfig::new(
-        "crmne/spotifast",
-        "Spotifast",
+        crate::spotify_compat::UPDATE_REPOSITORY,
+        "Spotify",
         "spotifast",
         env!("CARGO_PKG_VERSION"),
     )
@@ -47,6 +60,18 @@ mod tests {
     fn update_config_is_valid() {
         CONFIG.validate().unwrap();
         assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
+    }
+
+    #[test]
+    fn download_links_cannot_point_to_unmodified_upstream() {
+        assert_eq!(
+            download_page("https://github.com/crmne/spotifast/releases/tag/v99"),
+            crate::spotify_compat::RELEASES_URL
+        );
+        assert_eq!(
+            download_page("https://github.com/Tarx2000/spotifast/releases/tag/v0.14.1001"),
+            "https://github.com/Tarx2000/spotifast/releases/tag/v0.14.1001"
+        );
     }
 
     #[test]

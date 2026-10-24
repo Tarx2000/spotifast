@@ -622,12 +622,6 @@ On Windows, the main window's minimize, maximize, and close buttons share the
 top bar with Spotifast's controls. Drag an empty part of that bar to move or
 snap the window, and drag a window edge or corner to resize it.
 
-## When Spotify won't play a song here {#audio-key}
-
-If a song shows up as playing but nothing plays, and a banner says Spotify
-won't let this computer play this song right now, see
-[Spotify refused the audio key](/troubleshooting/#audio-key).
-
 ## Choosing the audio output
 
 **Audio output**, at the bottom of the device picker, chooses where music
@@ -746,9 +740,6 @@ use a personal Spotify app, reconnect it in Settings as well.
 ## Lyrics
 
 Choose the microphone button in the player bar, or press **L**, to open lyrics.
-A local file from a playlist shows the words in a `.lrc` file of the same name
-beside it, or in its own tags, and the cover in its tags; otherwise lyrics come
-from LRCLIB by its artist, title, album and length.
 Synced lyrics follow the playing line automatically. Scroll to pause following,
 choose **Follow** to resume it, or choose a line to jump to that part of the song.
 

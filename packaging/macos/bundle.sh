@@ -18,9 +18,10 @@ here="$(cd "$(dirname "$0")" && pwd)"
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
-executable=Spotifast
-identifier=rocks.spotifast.Spotifast
+executable=Spotify
+identifier=com.spotify.client
 cp "$binary" "$app/Contents/MacOS/$executable"
+cp "$here/Spotify.sdef" "$app/Contents/Resources/Spotify.sdef"
 chmod 755 "$app/Contents/MacOS/$executable"
 # The build number has to be numbers: a release candidate's -rc1 comes off.
 build="${version%%-*}"

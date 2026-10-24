@@ -45,16 +45,13 @@ const AUDIOBOOK_BATCH: usize = 50;
 /// How long resolving a radio station and its songs may take.
 const RADIO_TIMEOUT: Duration = Duration::from_secs(20);
 
-/// The songs in `folder` and its subfolders by the `spotify:local:` URIs
-/// they play for, found exactly as the player finds them, so the songs a
-/// playlist lists that will play are the ones shown as playable, and each
-/// one's file can be read for its cover and lyrics.
-fn local_file_uris(
-    folder: &std::path::Path,
-) -> std::collections::HashMap<String, std::path::PathBuf> {
+/// The `spotify:local:` URIs of the songs in `folder` and its subfolders,
+/// found exactly as the player finds them, so the songs a playlist lists
+/// that will play are the ones shown as playable.
+fn local_file_uris(folder: &std::path::Path) -> HashSet<String> {
     librespot_playback::local_file::create_local_file_lookup(&[folder.to_path_buf()])
         .iter()
-        .map(|(uri, path)| (uri.to_uri(), path.to_path_buf()))
+        .map(|(uri, _)| uri.to_uri())
         .collect()
 }
 /// Newest episodes read from each saved podcast for Home's podcast shelf.
@@ -928,18 +925,15 @@ pub struct LyricsRequest {
     /// The track the answer is for, so a stale one is ignored.
     pub uri: String,
     pub query: crate::lyrics::Query,
-    /// The local file a `spotify:local:` track plays from, whose own
-    /// lyrics come before LRCLIB's.
-    pub local_file: Option<std::path::PathBuf>,
 }
 
 pub enum Event {
     /// The folder picked in the local files dialog; `None` when cancelled.
     LocalFilesFolderChosen(Option<std::path::PathBuf>),
-    /// The songs in `folder`, by the `spotify:local:` URIs they play for.
+    /// The `spotify:local:` URIs the songs in `folder` play for.
     LocalFiles {
         folder: std::path::PathBuf,
-        uris: Arc<std::collections::HashMap<String, std::path::PathBuf>>,
+        uris: Arc<HashSet<String>>,
     },
     ProxyRestored {
         config: ProxyConfig,
@@ -2490,6 +2484,13 @@ impl Worker {
                     self.check_for_updates(manual, source)
                 }
                 Command::InspectUpdate => {
+                    if crate::updates::MANUAL_DOWNLOADS {
+                        let _ = self.events.send(Event::UpdateSupport(Err(
+                            "Personal builds are downloaded from GitHub.".into(),
+                        )));
+                        self.waker.wake();
+                        continue;
+                    }
                     let proxy = self.engine_config.proxy.clone();
                     let events = self.events.clone();
                     let waker = self.waker.clone();
@@ -2504,6 +2505,13 @@ impl Worker {
                     });
                 }
                 Command::DownloadUpdate { release, source } => {
+                    if crate::updates::MANUAL_DOWNLOADS {
+                        let _ = self.events.send(Event::UpdateDownloaded(Err(
+                            "Use the personal GitHub download.".into(),
+                        )));
+                        self.waker.wake();
+                        continue;
+                    }
                     let proxy = self.engine_config.proxy.clone();
                     let events = self.events.clone();
                     let waker = self.waker.clone();
@@ -2528,6 +2536,13 @@ impl Worker {
                     prepared,
                     arguments,
                 } => {
+                    if crate::updates::MANUAL_DOWNLOADS {
+                        let _ = self.events.send(Event::UpdateInstalling(Err(
+                            "Use the personal GitHub download.".into(),
+                        )));
+                        self.waker.wake();
+                        continue;
+                    }
                     let proxy = self.engine_config.proxy.clone();
                     let events = self.events.clone();
                     let waker = self.waker.clone();
@@ -4417,21 +4432,10 @@ impl Worker {
         let cache_dir = self.dirs.lyrics_cache_dir();
         let engine = self.engine.clone();
         tokio::spawn(async move {
-            // A local file's own words go first, then Spotify's: they
-            // follow the recording exactly. Everything else, a signed-out
-            // session included, falls back to LRCLIB.
-            let own = match request.local_file {
-                Some(file) => tokio::task::spawn_blocking(move || crate::local_tags::lyrics(&file))
-                    .await
-                    .ok()
-                    .flatten(),
-                None => None,
-            };
-            let exact = match own {
-                Some(found) => Some(found),
-                None => spotify_lyrics(engine, &request.uri, &cache_dir).await,
-            };
-            let result = match exact {
+            // Spotify's own words go first: they follow the recording
+            // exactly. Everything else, a signed-out session included,
+            // falls back to LRCLIB.
+            let result = match spotify_lyrics(engine, &request.uri, &cache_dir).await {
                 Some(found) => Ok(Some(found)),
                 None => match http {
                     Ok(http) => crate::lyrics::fetch(&http, &cache_dir, &request.query)

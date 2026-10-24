@@ -142,10 +142,6 @@ still asks for all six types and nothing about a search changes.
 Since 0.8.0, verified Premium accounts using shared access see a
 one-time introduction to that option. Setup and dismissal are remembered in
 settings. The prompt uses the existing account profile and adds no request.
-When Spotify answers a shared-app Web API request with "too
-many requests" (HTTP 429), those accounts also see a banner offering the same
-setup, at most once a day and never again after it was closed three times.
-It reads the answer the request already received and adds no request.
 
 Since 0.8.0, explicitly sorting a Library section loads its remaining
 pages through the existing Web API grant, one at a time, while loaded entries
@@ -215,9 +211,8 @@ out, or a reconnection that gives up stops it.
   while the saved rows remain visible. Manual refresh starts immediately.
   Like and Unlike are kept over lagging reads until Spotify confirms them.
 - Spotifast has no telemetry, analytics, or hosted service. When the lyrics
-  panel is open and neither Spotify nor a local file has lyrics, it sends
-  the track's artist, title, album, and length to
-  [lrclib.net](https://lrclib.net). It also checks
+  panel is open and Spotify has no lyrics, it sends the track's artist, title,
+  album, and length to [lrclib.net](https://lrclib.net). It also checks
   api.github.com once a day for updates. You can turn off automatic checks in
   Settings, or request one there at any time. On macOS, **Check for Updates**
   is also in the application menu. On a connection the system reports as
@@ -284,9 +279,6 @@ rows are placeholders until their page arrives; scrolling never starts playback.
 
 ## When Spotify pushes back
 
-[Spotify is being slow](/troubleshooting/#rate-limits) explains rate limits
-for listeners.
-
 Each Web API session has separate concurrency and rate limits. A `Retry-After`
 response pauses only that session. Spotifast routes each request once and
 does not retry it through the other app. A playlist read the librespot session
@@ -317,10 +309,7 @@ before. None of these reads use Web API quota.
 Spotify can also explicitly refuse the key needed to decrypt a track. When
 that happens, Spotifast stops local playback and leaves the rest of the queue
 alone instead of treating every following track as unavailable. This refusal
-comes from Spotify; trying again later may work. A banner says so and offers
-the device picker, since other Spotify Connect devices fetch their own audio
-and keys; [Spotify refused the audio key](/troubleshooting/#audio-key)
-explains it for listeners. The banner reads the engine's own event and adds no request.
+comes from Spotify; trying again later may work.
 
 Before adding songs to an existing playlist, Spotifast checks the rows it
 already holds. A known duplicate produces an immediate confirmation naming the
@@ -607,20 +596,12 @@ does not cause the previous local song to restart or replace the remote queue.
 
 The engine prepares the next two songs of the queue while one plays, so Next
 starts the following song without waiting for it to load. For each, it reads
-the song's metadata and fetches the first 128 KB of its file from Spotify's
-CDN, about three seconds of audio at 320 kbit/s, and keeps them in memory; for
-the next song it also asks for the audio key. A song already in the audio
-cache is not fetched again. Nothing is wasted when the song then plays: its
-load uses what was fetched. Skipping further than two songs ahead loads the
-song as before, and a song skipped past before it has loaded stops loading.
-These requests go through the playback session and use no Web API quota.
-
-Audio keys are asked for one at a time, at least 200 ms apart. When Spotify
-refuses one, the session waits 3 seconds before asking for any key, then 5,
-then 10 after each further refusal in a row, and a key that arrives ends the
-wait. The song being loaded asks again after each wait, up to three times,
-before Spotifast reports the refusal; the next song's key is not prefetched
-during a wait.
+the song's metadata, asks for its audio key, and fetches the first 128 KB of
+its file from Spotify's CDN, about three seconds of audio at 320 kbit/s, and
+keeps them in memory. A song already in the audio cache is not fetched again.
+Nothing is wasted when the song then plays: its load uses all three.
+Skipping further than two songs ahead loads the song as before. These
+requests go through the playback session and use no Web API quota.
 
 Local playback has one output on every platform, fastframe-audio: CoreAudio on
 macOS, WASAPI on Windows, and on Linux PipeWire when it is running, otherwise a

@@ -72,11 +72,6 @@ const TOAST_LIFETIME: Duration = Duration::from_millis(3200);
 /// from delayed repaints, so 33 ms drives roughly one frame per 16 ms.
 const TOAST_FRAME: Duration = Duration::from_millis(33);
 const OPTIMISTIC_HOLD: Duration = Duration::from_millis(2500);
-/// The banner suggesting a personal app appears at most this often.
-const SLOW_BANNER_INTERVAL: jiff::SignedDuration = jiff::SignedDuration::from_hours(24);
-/// A "too many requests" answer older than this no longer brings up the
-/// banner: Spotify has likely caught up by the time a dialog closes.
-const SLOW_BANNER_FRESH: Duration = Duration::from_secs(60);
 
 /// How long a newly started context remains visible while Spotify catches up.
 /// During local takeover, Spotify may briefly alternate between old and new
@@ -646,10 +641,7 @@ pub struct App {
     played_row: Option<PlayedRow>,
     /// The songs found in the local files folder, as the `spotify:local:`
     /// URIs a playlist lists them by; `None` until the folder is read.
-    pub local_files: Option<(
-        std::path::PathBuf,
-        std::sync::Arc<HashMap<String, std::path::PathBuf>>,
-    )>,
+    pub local_files: Option<(std::path::PathBuf, std::sync::Arc<HashSet<String>>)>,
     /// Requested shuffle mode, applied to every context until changed.
     shuffle_wanted: bool,
     /// The repeat mode saved by the last run, which the first local load
@@ -663,18 +655,6 @@ pub struct App {
     last_unavailable_reconnect: Option<Instant>,
     /// The Premium notice has been shown for this sign-in.
     premium_notice_shown: bool,
-    /// The "Spotify is being slow" banner is up at the top of the page.
-    pub slow_banner: bool,
-    /// The banner saying Spotify refused this computer a song's audio key
-    /// is up. It takes the slow banner's place while both are due.
-    pub audio_key_banner: bool,
-    /// The listener closed the audio-key banner, and no song has played
-    /// here since: further refusals only toast.
-    audio_key_banner_closed: bool,
-    /// The shared app's rate-limit count last read from the backend.
-    shared_rate_limits_seen: u64,
-    /// When Spotify last told the shared app it sent too many requests.
-    shared_rate_limited_at: Option<Instant>,
     /// Context shown immediately after play, until Spotify confirms it. An
     /// empty URI means a plain track list, whose lack of a context must also
     /// hide stale state.
@@ -796,7 +776,7 @@ const RECENTS_PAGE: u32 = 50;
 /// Who the desktop's media controls belong to. Links to Spotify, as
 /// `spotify:` URIs or web addresses, are what they may ask Spotifast to open.
 fn media_app() -> fastframe_now_playing::App {
-    let mut app = fastframe_now_playing::App::new("spotifast", "Spotifast");
+    let mut app = fastframe_now_playing::App::new("spotifast", crate::spotify_compat::DISPLAY_NAME);
     app.uri_schemes = vec!["spotify".into(), "https".into(), "http".into()];
     app
 }
@@ -909,7 +889,7 @@ fn tray_config() -> fastframe_tray::Config {
     use fastframe_tray::MenuItem;
     fastframe_tray::Config {
         id: "spotifast",
-        title: "Spotifast".into(),
+        title: crate::spotify_compat::DISPLAY_NAME.into(),
         icon: util::app_icon_rgba,
         template_icon: Some(util::tray_template_rgba),
         themed_icon: true,
@@ -1241,11 +1221,6 @@ impl App {
             unavailable_at: Vec::new(),
             last_unavailable_reconnect: None,
             premium_notice_shown: false,
-            slow_banner: false,
-            audio_key_banner: false,
-            audio_key_banner_closed: false,
-            shared_rate_limits_seen: 0,
-            shared_rate_limited_at: None,
             assumed_context: None,
             last_now_playing_uri: None,
             last_now_playing_sequence: 0,
@@ -1980,12 +1955,11 @@ impl App {
                     .and_then(|cached| cached.album.as_ref())
                     .map(|album| album.id.clone()),
                 show_id: None,
-                art_url: track.art_url.clone().or_else(|| self.local_art(&track.uri)),
+                art_url: track.art_url.clone(),
                 art_small: track
                     .art_small_url
                     .clone()
-                    .or_else(|| track.art_url.clone())
-                    .or_else(|| self.local_art(&track.uri)),
+                    .or_else(|| track.art_url.clone()),
                 duration_ms: track.duration_ms,
                 position_ms: match self.pending_local_position {
                     Some((position, at)) if at.elapsed() < OPTIMISTIC_HOLD => {
@@ -2086,8 +2060,8 @@ impl App {
             album_name,
             album_id,
             show_id,
-            art_url: self.item_image(item, 640),
-            art_small: self.item_image(item, 64),
+            art_url: item.image(640).map(str::to_string),
+            art_small: item.image(64).map(str::to_string),
             duration_ms: item.duration_ms(),
             position_ms: position,
             playing,
@@ -2740,9 +2714,6 @@ impl App {
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
                     self.dialog = None;
                 }
-                self.slow_banner = false;
-                self.audio_key_banner = false;
-                self.audio_key_banner_closed = false;
                 self.uploaded_covers.clear();
                 self.sign_in_url = None;
                 self.web_app = None;
@@ -3166,12 +3137,7 @@ impl App {
         if let Some(error) = &state.error
             && self.local.error.as_deref() != Some(error.as_str())
         {
-            if error == crate::player::AUDIO_KEY_REFUSED && !self.audio_key_banner_closed {
-                // The banner explains it and says what still works.
-                self.audio_key_banner = true;
-            } else {
-                self.toast_error(engine_error_text(self.locale, error));
-            }
+            self.toast_error(engine_error_text(self.locale, error));
             // One unavailable track is Spotify's catalogue; several in a
             // row is the session's audio-key service gone bad, which
             // leaves librespot feeding the decoder encrypted bytes and
@@ -3217,14 +3183,6 @@ impl App {
             self.poll_remote_soon();
         }
         self.local = state;
-        if self.local.playback == Playback::Playing
-            && !self.local.loading
-            && self.local.error.is_none()
-        {
-            // A song plays here again: the next refusal is news.
-            self.audio_key_banner = false;
-            self.audio_key_banner_closed = false;
-        }
         if let Some(volume) = held_volume {
             self.local.volume = volume;
         }
@@ -3545,12 +3503,6 @@ impl App {
             if now.local && self.resume_track.as_deref() == Some(now.uri.as_str()) {
                 for uri in queued {
                     self.manual_queue.push(uri.clone());
-                    // Spotify's queue refuses local files; the engine
-                    // queues them itself.
-                    if uri.starts_with(LOCAL_URI_PREFIX) {
-                        self.backend.player(PlayerCommand::AddToQueue(uri));
-                        continue;
-                    }
                     self.backend.api(ApiRequest::AddToQueue {
                         uri,
                         device_id: self.local_device_id.clone(),
@@ -3671,7 +3623,6 @@ impl App {
             return;
         }
         self.lyrics = Loadable::Loading;
-        let local_file = self.local_file(&now.uri).map(std::path::Path::to_path_buf);
         self.backend.send(Command::Lyrics(Box::new(LyricsRequest {
             uri: now.uri,
             query: crate::lyrics::Query {
@@ -3684,7 +3635,6 @@ impl App {
                 album: now.album_name,
                 duration_ms: now.duration_ms,
             },
-            local_file,
         })));
     }
 
@@ -3744,12 +3694,6 @@ impl App {
             self.played_row = None;
         }
         self.maybe_suggest_personal_app();
-        let rate_limits = self.backend.activity().shared_rate_limits();
-        if rate_limits != self.shared_rate_limits_seen {
-            self.shared_rate_limits_seen = rate_limits;
-            self.shared_rate_limited_at = Some(Instant::now());
-        }
-        self.maybe_show_slow_banner(jiff::Timestamp::now());
 
         // Not on a metered connection or without internet: the check waits
         // for a connection that will do, and checking by hand still works.
@@ -4503,12 +4447,9 @@ impl App {
     /// artwork is fetched here -- the one request the controls add.
     ///
     /// MPRIS passes `art_url` to the desktop, which fetches whatever it
-    /// wants: Linux needs no file and downloads nothing extra. A local
-    /// file's cover has no URL the desktop can fetch, so every platform
-    /// gets the copy the art loader keeps of it.
+    /// wants: Linux needs no file and downloads nothing extra.
     fn media_art_file(&mut self, ctx: &egui::Context, url: &str) -> Option<PathBuf> {
-        let local = url.starts_with(crate::local_tags::ART_SCHEME);
-        if cfg!(target_os = "linux") && !local {
+        if cfg!(target_os = "linux") {
             return None;
         }
         if let Some((known, file)) = &self.media_art
@@ -4524,7 +4465,7 @@ impl App {
             // On a metered connection the controls go without the large
             // cover rather than download one for every song.
             None => {
-                if local || !self.metered() {
+                if !self.metered() {
                     self.backend.art().prefetch(ctx, url);
                 }
                 None
@@ -4582,10 +4523,7 @@ impl App {
                     album: now.album_name.clone(),
                     duration: Some(Duration::from_millis(u64::from(now.duration_ms))),
                     art_file,
-                    art_url: now
-                        .art_url
-                        .clone()
-                        .filter(|url| !url.starts_with(crate::local_tags::ART_SCHEME)),
+                    art_url: now.art_url.clone(),
                     url: Some(now.uri.clone()),
                     ..MediaTrack::default()
                 }),
@@ -4606,6 +4544,8 @@ impl App {
                 ..MediaState::default()
             },
         };
+        #[cfg(target_os = "macos")]
+        crate::spotify_compat::update(self.spotify_snapshot());
         if let Some(controls) = &mut self.media_controls {
             controls.update(state);
         }
@@ -4632,6 +4572,26 @@ impl App {
             let snapshot = self.control_devices_snapshot();
             *slot.lock().unwrap_or_else(|p| p.into_inner()) = snapshot;
             self.control_devices_stale = false;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn spotify_snapshot(&self) -> crate::spotify_compat::Snapshot {
+        let Some(now) = self.now_playing() else {
+            return crate::spotify_compat::Snapshot::default();
+        };
+        crate::spotify_compat::Snapshot {
+            uri: now.uri,
+            title: now.title,
+            artist: now.subtitle,
+            album: now.album_name,
+            artwork_url: now.art_url.unwrap_or_default(),
+            duration_ms: now.duration_ms,
+            position_ms: now.position_ms,
+            volume: now.volume_percent,
+            playing: now.playing,
+            shuffle: now.shuffle,
+            repeating: now.repeat != RepeatMode::Off,
         }
     }
 
@@ -9738,10 +9698,6 @@ impl App {
         // Each picked row is its own ask, so a song picked twice is queued
         // twice. Only an add from an earlier click can make one of them a
         // repeat, so decide that before adding any.
-        let songs: Vec<(String, String)> = songs
-            .into_iter()
-            .filter(|(uri, _)| self.can_queue(uri))
-            .collect();
         let repeats: Vec<bool> = songs
             .iter()
             .map(|(uri, _)| self.queued_moments_ago(uri))
@@ -9777,7 +9733,7 @@ impl App {
     fn resync_local_queue(&mut self) {
         self.backend.player(PlayerCommand::ClearQueue);
         for uri in self.manual_queue.clone() {
-            if engine_queues(&uri) {
+            if uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:") {
                 self.backend.player(PlayerCommand::AddToQueue(uri));
             }
         }
@@ -9796,18 +9752,16 @@ impl App {
     ///
     /// `announce` is false when a batch should produce one toast.
     fn queue_one(&mut self, uri: String, label: String, announce: bool) {
-        if !self.can_queue(&uri) {
-            return;
-        }
         let pending_start = self.pending_queue_adds.len();
         self.show_queued_song(&uri, &label);
         if announce {
             // Translators: {name} is a song, episode, album, or playlist name.
             self.toast(gettext(self.locale, "{name} added to queue").replace("{name}", &label));
         }
-        // Queue tracks, episodes and local files directly on the active
-        // local engine. Other targets and item types use the Web API.
-        if engine_queues(&uri) && self.queue_locally_reorderable() {
+        // Queue tracks and episodes directly on the active local engine.
+        // Other targets and item types use the Web API.
+        let track_like = uri.starts_with("spotify:track:") || uri.starts_with("spotify:episode:");
+        if track_like && self.local.is_active() && matches!(self.target(), Target::Local) {
             self.backend.player(PlayerCommand::AddToQueue(uri));
             self.queue_recheck_at = Some(Instant::now() + QUEUE_RECHECK);
             return;
@@ -10070,45 +10024,6 @@ impl App {
         self.actions.push(Action::RestartEngine);
     }
 
-    /// Whether the song at `uri` can be queued. Spotify's queue refuses a
-    /// `spotify:local:` URI, so a local file queues only on this computer's
-    /// active player, which plays it from the local files folder, and only
-    /// when the folder holds it (#1002).
-    pub fn can_queue(&self, uri: &str) -> bool {
-        !uri.starts_with(LOCAL_URI_PREFIX)
-            || (self.queue_locally_reorderable()
-                && self
-                    .local_files
-                    .as_ref()
-                    .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(uri))))
-    }
-
-    /// The file in the local files folder that `uri` plays from.
-    pub fn local_file(&self, uri: &str) -> Option<&std::path::Path> {
-        if !uri.starts_with(LOCAL_URI_PREFIX) {
-            return None;
-        }
-        let (_, files) = self.local_files.as_ref()?;
-        files
-            .get(&local_file_key(uri))
-            .map(std::path::PathBuf::as_path)
-    }
-
-    /// The cover embedded in the local file `uri` plays from, unless it
-    /// was read and holds none (#1001).
-    pub fn local_art(&self, uri: &str) -> Option<String> {
-        let url = crate::local_tags::art_url(self.local_file(uri)?);
-        (!self.backend.art().is_coverless(&url)).then_some(url)
-    }
-
-    /// The cover for `item` drawn about `pixels` wide: Spotify's, or for a
-    /// local file the one in the file.
-    pub fn item_image(&self, item: &PlayableItem, pixels: u32) -> Option<String> {
-        item.image(pixels)
-            .map(str::to_string)
-            .or_else(|| self.local_art(item.uri()))
-    }
-
     /// Whether `item` can start playback here: a local file only when the
     /// local files folder holds it.
     pub fn row_playable(&self, item: &PlayableItem) -> bool {
@@ -10116,7 +10031,7 @@ impl App {
             || self
                 .local_files
                 .as_ref()
-                .is_some_and(|(_, uris)| uris.contains_key(&local_file_key(item.uri())))
+                .is_some_and(|(_, uris)| uris.contains(&local_file_key(item.uri())))
     }
 
     /// The picked rows to remove one by one, when the removal includes a
@@ -10825,10 +10740,6 @@ impl App {
                     return;
                 }
                 let position = position.min(self.queued_rows_len());
-                let items: Vec<PlayableItem> = items
-                    .into_iter()
-                    .filter(|item| self.can_queue(item.uri()))
-                    .collect();
                 let repeats: Vec<bool> = items
                     .iter()
                     .map(|item| self.queued_moments_ago(item.uri()))
@@ -11064,24 +10975,10 @@ impl App {
             }
             Action::CloseDialog => {
                 if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
-                    self.intro_answered(jiff::Timestamp::now());
+                    self.settings.personal_app_intro_seen = true;
+                    self.settings_dirty = true;
                 }
                 self.dialog = None;
-            }
-            Action::CloseAudioKeyBanner => {
-                self.audio_key_banner = false;
-                self.audio_key_banner_closed = true;
-            }
-            Action::PlayOnAnotherDevice => {
-                if !self.show_devices {
-                    self.apply(Action::ToggleDevicesPopup, ctx);
-                }
-            }
-            Action::CloseSlowBanner => {
-                self.slow_banner = false;
-                let banner = &mut self.settings.slow_app_banner;
-                banner.dismissals = banner.dismissals.saturating_add(1);
-                self.settings_dirty = true;
             }
             Action::CreatePlaylist {
                 name,
@@ -11140,13 +11037,10 @@ impl App {
                     .api(ApiRequest::FollowPlaylist { id, follow: false });
             }
             Action::Transfer(device_id) => {
-                // The listener chose where to play instead.
-                self.audio_key_banner = false;
                 self.remember_device_choice(&device_id);
                 self.transfer(device_id);
             }
             Action::ActivateReceiver(receiver) => {
-                self.audio_key_banner = false;
                 if self.activating_receiver.is_none() {
                     if let Some(key) = receiver.preference_key() {
                         self.remember_device_choice(&key);
@@ -11285,12 +11179,8 @@ impl App {
                 ));
             }
             Action::OpenPersonalAppSetup => {
-                if matches!(self.dialog, Some(Dialog::PersonalAppIntro)) {
-                    self.intro_answered(jiff::Timestamp::now());
-                }
                 self.settings.personal_app_intro_seen = true;
                 self.settings_dirty = true;
-                self.slow_banner = false;
                 self.dialog = None;
                 self.open(Page::Settings);
                 // A saved search could be hiding the Client ID field the
@@ -11403,6 +11293,9 @@ impl App {
                 }
             }
             Action::DownloadUpdate => {
+                if crate::updates::MANUAL_DOWNLOADS {
+                    return;
+                }
                 if matches!(
                     self.update_download,
                     crate::updates::DownloadState::Idle | crate::updates::DownloadState::Failed(_)
@@ -11419,6 +11312,9 @@ impl App {
                 }
             }
             Action::InstallUpdate => {
+                if crate::updates::MANUAL_DOWNLOADS {
+                    return;
+                }
                 if matches!(
                     self.update_download,
                     crate::updates::DownloadState::Ready(_)
@@ -12030,68 +11926,25 @@ impl App {
         });
     }
 
-    /// A connected Premium listener without a personal app, who could set
-    /// one up, and nothing else is asking for their attention.
-    fn could_suggest_personal_app(&self) -> bool {
-        self.settings
-            .web_client_id
-            .as_deref()
-            .is_none_or(|id| id.trim().is_empty())
-            && self.web_app.is_none()
-            && self.is_connected()
-            && !self.offline
-            && self.user.as_ref().and_then(|user| user.product.as_deref()) == Some("premium")
-            && self.dialog.is_none()
-            && !self.show_devices
-            && !self.settings.winamp_window
-            && self.page() != &Page::Settings
-    }
-
     fn maybe_suggest_personal_app(&mut self) {
-        if self.settings.personal_app_intro_seen || !self.could_suggest_personal_app() {
-            return;
-        }
-        self.dialog = Some(Dialog::PersonalAppIntro);
-    }
-
-    /// The listener answered the introduction: it counts as today's
-    /// suggestion, so the banner does not follow straight after it.
-    fn intro_answered(&mut self, now: jiff::Timestamp) {
-        self.settings.personal_app_intro_seen = true;
-        self.settings.slow_app_banner.shown_at = Some(now.to_string());
-        self.settings_dirty = true;
-    }
-
-    /// Brings up the "Spotify is being slow" banner after Spotify recently
-    /// told the shared app it sent too many requests: at most once a day,
-    /// and never after the listener closed it three times.
-    fn maybe_show_slow_banner(&mut self, now: jiff::Timestamp) {
-        if self.slow_banner {
-            // A personal app arrived, or the account changed.
-            let personal = self
+        if self.settings.personal_app_intro_seen
+            || self
                 .settings
                 .web_client_id
                 .as_deref()
                 .is_some_and(|id| !id.trim().is_empty())
-                || self.web_app.is_some();
-            if personal || !self.is_connected() {
-                self.slow_banner = false;
-            }
-            return;
-        }
-        let banner = &self.settings.slow_app_banner;
-        if !self
-            .shared_rate_limited_at
-            .is_some_and(|at| at.elapsed() < SLOW_BANNER_FRESH)
-            || banner.dismissals >= crate::settings::SlowAppBanner::MAX_DISMISSALS
-            || !slow_banner_due(banner.shown_at.as_deref(), now)
-            || !self.could_suggest_personal_app()
+            || self.web_app.is_some()
+            || !self.is_connected()
+            || self.offline
+            || self.user.as_ref().and_then(|user| user.product.as_deref()) != Some("premium")
+            || self.dialog.is_some()
+            || self.show_devices
+            || self.settings.winamp_window
+            || self.page() == &Page::Settings
         {
             return;
         }
-        self.slow_banner = true;
-        self.settings.slow_app_banner.shown_at = Some(now.to_string());
-        self.settings_dirty = true;
+        self.dialog = Some(Dialog::PersonalAppIntro);
     }
 
     /// Selected row indices for `page`.
@@ -12313,6 +12166,10 @@ impl App {
     /// Takes an automatic update step now, or holds it until the connection
     /// is neither metered nor down.
     fn take_update_step(&mut self, step: HeldUpdate) {
+        if crate::updates::MANUAL_DOWNLOADS {
+            self.held_update = None;
+            return;
+        }
         if self.downloads_wait() {
             self.held_update = Some(step);
             return;
@@ -12550,9 +12407,11 @@ impl App {
     /// Keeps the current track in the window and taskbar title (#94).
     fn sync_window_title(&mut self, ctx: &egui::Context) {
         let title = match self.now_playing().filter(|now| now.playing) {
-            Some(now) if now.subtitle.is_empty() => format!("{} - Spotifast", now.title),
+            Some(now) if now.subtitle.is_empty() => {
+                format!("{} - {}", now.title, crate::spotify_compat::DISPLAY_NAME)
+            }
             Some(now) => format!("{} - {}", now.subtitle, now.title),
-            None => "Spotifast".to_string(),
+            None => crate::spotify_compat::DISPLAY_NAME.to_string(),
         };
         if title != self.window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
@@ -12982,35 +12841,15 @@ fn increase_playlist_total(playlist: &mut Playlist, added: u32) {
     }
 }
 
-const LOCAL_URI_PREFIX: &str = "spotify:local:";
-
-/// Whether the local engine's own queue takes `uri`: a track, an episode or
-/// a local file, which librespot plays from the local files folder.
-fn engine_queues(uri: &str) -> bool {
-    ["spotify:track:", "spotify:episode:", LOCAL_URI_PREFIX]
-        .iter()
-        .any(|prefix| uri.starts_with(prefix))
-}
-
 /// A `spotify:local:` URI as the player keys it, parsed and written back as
 /// librespot does; empty for any other URI.
 pub(crate) fn local_file_key(uri: &str) -> String {
-    if !uri.starts_with(LOCAL_URI_PREFIX) {
+    if !uri.starts_with("spotify:local:") {
         return String::new();
     }
     librespot_core::SpotifyUri::from_uri(uri)
         .map(|uri| uri.to_uri())
         .unwrap_or_default()
-}
-
-/// Whether a day has passed since the banner last appeared. A missing,
-/// unreadable or future time (a clock set back) does not hold it back.
-fn slow_banner_due(last: Option<&str>, now: jiff::Timestamp) -> bool {
-    let Some(last) = last.and_then(|value| value.parse::<jiff::Timestamp>().ok()) else {
-        return true;
-    };
-    let elapsed = now.duration_since(last);
-    elapsed < jiff::SignedDuration::ZERO || elapsed >= SLOW_BANNER_INTERVAL
 }
 
 pub fn engine_config(
@@ -13023,7 +12862,11 @@ pub fn engine_config(
     EngineConfig {
         tap,
         eq,
-        device_name: settings.device_name.trim().to_string(),
+        device_name: if cfg!(target_os = "macos") && settings.device_name.trim() == "Spotifast" {
+            crate::spotify_compat::DISPLAY_NAME.to_string()
+        } else {
+            settings.device_name.trim().to_string()
+        },
         bitrate_kbps: settings.bitrate,
         normalisation: settings.normalisation,
         autoplay: settings.autoplay,
@@ -13133,13 +12976,6 @@ fn fill_availability(availability: &HashMap<String, bool>, items: &mut [Playlist
 /// The playback engine reports in English from its own thread. The
 /// messages the interface recognises are shown in the user's language.
 fn engine_error_text(locale: Locale, error: &str) -> String {
-    if error == crate::player::AUDIO_KEY_REFUSED {
-        return gettext(
-            locale,
-            "Spotify won't let this computer play this song right now.",
-        )
-        .into_owned();
-    }
     if error == crate::sink::NO_DEVICE {
         return gettext(
             locale,
@@ -16606,28 +16442,6 @@ mod tests {
         assert!(app.session_dirty);
     }
 
-    /// A saved queue that holds a local file restores it on the local
-    /// engine, since Spotify's queue refuses `spotify:local:` (#1002).
-    #[test]
-    fn a_saved_local_file_returns_to_the_engines_queue() {
-        let local = "spotify:local:Artist:Album:Song:180";
-        let mut app = headless_app();
-        app.resume_track = Some("spotify:track:abc".into());
-        app.resume_queue = vec!["spotify:track:q1".into(), local.into()];
-        app.local.track = Some(crate::player::LocalTrack {
-            uri: "spotify:track:abc".into(),
-            ..Default::default()
-        });
-        app.local.playback = Playback::Playing;
-        app.backend.take_player_commands();
-        app.on_now_playing_changed();
-        assert_eq!(app.manual_queue, ["spotify:track:q1", local]);
-        assert_eq!(app.backend.take_queued_tracks(), [local]);
-        let requests = app.backend.take_queue_requests();
-        assert_eq!(requests.len(), 1);
-        assert!(!format!("{requests:?}").contains("spotify:local:"));
-    }
-
     /// A selected list row loads without shuffle, then enables shuffle.
     #[test]
     fn a_chosen_row_in_a_list_never_loads_shuffled() {
@@ -18390,116 +18204,6 @@ mod tests {
         assert!(app.pending_queue_adds.is_empty());
         assert!(app.backend.take_player_commands().is_empty());
         assert!(app.backend.take_queue_requests().is_empty());
-        app.backend.shutdown();
-    }
-
-    /// Spotify's queue refuses a `spotify:local:` URI ("Invalid track
-    /// uri"), so a local file the folder holds queues on this computer's
-    /// own player, which plays it from the folder like a playlist row.
-    /// Anywhere else it is not queued at all, not shown and then failed
-    /// (#1002).
-    #[test]
-    fn local_files_queue_on_this_computers_player() {
-        const HELD: &str = "spotify:local:Leigh-Anne:My+Ego+Told+Me+To:Home:148";
-        const ALSO_HELD: &str = "spotify:local:Leigh-Anne:My+Ego+Told+Me+To:Away:201";
-        const MISSING: &str = "spotify:local:Someone:Else:Song:100";
-        let ctx = egui::Context::default();
-        let mut app = app_with_local_manual_queue();
-        app.backend.set_offline(true);
-        app.settings.local_files_folder = Some("/music".into());
-        app.local_files = Some((
-            "/music".into(),
-            Arc::new(HashMap::from([
-                (local_file_key(HELD), "/music/Home.mp3".into()),
-                (local_file_key(ALSO_HELD), "/music/Away.mp3".into()),
-            ])),
-        ));
-        assert!(app.can_queue(HELD));
-        assert!(!app.can_queue(MISSING));
-        assert!(app.can_queue("spotify:track:x"));
-        app.backend.take_player_commands();
-
-        app.apply(
-            Action::AddToQueue {
-                uri: HELD.into(),
-                label: "Home".into(),
-            },
-            &ctx,
-        );
-        assert_eq!(
-            app.manual_queue,
-            [
-                "spotify:track:a",
-                "spotify:track:b",
-                "spotify:track:c",
-                HELD
-            ]
-        );
-        assert_eq!(queue_uris(&app).1[3], HELD);
-        assert_eq!(app.backend.take_queued_tracks(), [HELD]);
-        assert!(app.backend.take_queue_requests().is_empty());
-
-        // Play next rewrites the engine's queue with the local file in it.
-        app.apply(
-            Action::PlayNext {
-                items: vec![local_track(ALSO_HELD)],
-            },
-            &ctx,
-        );
-        assert_eq!(app.manual_queue[0], ALSO_HELD);
-        assert_eq!(
-            app.backend.take_queued_tracks(),
-            [
-                ALSO_HELD,
-                "spotify:track:a",
-                "spotify:track:b",
-                "spotify:track:c",
-                HELD
-            ]
-        );
-
-        // A local file the folder does not hold would never play.
-        let before = app.manual_queue.clone();
-        app.apply(
-            Action::AddToQueue {
-                uri: MISSING.into(),
-                label: "Song".into(),
-            },
-            &ctx,
-        );
-        assert_eq!(app.manual_queue, before);
-        assert!(app.backend.take_queued_tracks().is_empty());
-
-        // With another device playing, a selection queues its Spotify songs
-        // and leaves the local file out instead of failing on it.
-        app.local.playback = Playback::Stopped;
-        app.local_ready = false;
-        assert!(!app.can_queue(HELD));
-        app.apply(
-            Action::QueueMany {
-                songs: vec![
-                    ("spotify:track:x".into(), "X".into()),
-                    (HELD.into(), "Home".into()),
-                ],
-            },
-            &ctx,
-        );
-        assert_eq!(
-            app.manual_queue.last().map(String::as_str),
-            Some("spotify:track:x")
-        );
-        assert!(
-            !app.manual_queue[before.len()..]
-                .iter()
-                .any(|uri| uri == HELD)
-        );
-        let requests = app.backend.take_queue_requests();
-        assert!(
-            requests
-                .iter()
-                .all(|request| !format!("{request:?}").contains("spotify:local:"))
-        );
-        assert!(app.backend.take_queued_tracks().is_empty());
         app.backend.shutdown();
     }
 
@@ -21046,238 +20750,6 @@ mod tests {
         assert!(!app.settings.personal_app_intro_seen);
     }
 
-    fn premium_on_shared_app(name: &str) -> App {
-        let mut app = test_app(name);
-        app.auth = AuthStatus::Connected {
-            username: "listener".into(),
-        };
-        app.user = Some(User {
-            product: Some("premium".into()),
-            ..User::default()
-        });
-        app.settings.personal_app_intro_seen = true;
-        app
-    }
-
-    fn local_refusal(sequence: u64) -> LocalState {
-        LocalState {
-            playback: Playback::Stopped,
-            error: Some(crate::player::AUDIO_KEY_REFUSED.into()),
-            track_sequence: sequence,
-            ..LocalState::default()
-        }
-    }
-
-    fn local_retry(sequence: u64) -> LocalState {
-        LocalState {
-            playback: Playback::Loading,
-            loading: true,
-            track_sequence: sequence,
-            ..LocalState::default()
-        }
-    }
-
-    fn local_playing(sequence: u64) -> LocalState {
-        LocalState {
-            playback: Playback::Playing,
-            position_at: Some(Instant::now()),
-            track_sequence: sequence,
-            ..LocalState::default()
-        }
-    }
-
-    #[test]
-    fn a_refused_audio_key_brings_up_its_banner_instead_of_a_toast() {
-        let mut app = test_app("audio-key-banner");
-        app.handle_local(local_refusal(1));
-        assert!(app.audio_key_banner);
-        assert!(app.toasts.is_empty(), "the banner says it, not a toast");
-
-        // Trying again and failing again keeps the one banner.
-        app.handle_local(local_retry(1));
-        assert!(app.audio_key_banner, "a retry does not take it away");
-        app.handle_local(local_refusal(1));
-        assert!(app.audio_key_banner);
-        assert!(app.toasts.is_empty());
-
-        // A song that plays here takes it away.
-        app.handle_local(local_retry(2));
-        app.handle_local(local_playing(2));
-        assert!(!app.audio_key_banner);
-    }
-
-    #[test]
-    fn a_closed_audio_key_banner_waits_for_a_song_to_play() {
-        let ctx = egui::Context::default();
-        let mut app = test_app("audio-key-banner-closed");
-        app.handle_local(local_refusal(1));
-        app.apply(Action::CloseAudioKeyBanner, &ctx);
-        assert!(!app.audio_key_banner);
-
-        // The same failure again only toasts, in plain words.
-        app.handle_local(local_retry(1));
-        app.handle_local(local_refusal(1));
-        assert!(!app.audio_key_banner, "closed until a song plays");
-        assert_eq!(app.toasts.len(), 1);
-        assert_eq!(
-            app.toasts[0].message,
-            "Spotify won't let this computer play this song right now."
-        );
-
-        // After a song played, the next refusal is news again.
-        app.handle_local(local_retry(2));
-        app.handle_local(local_playing(2));
-        app.handle_local(local_retry(3));
-        app.handle_local(local_refusal(3));
-        assert!(app.audio_key_banner);
-        assert_eq!(app.toasts.len(), 1);
-    }
-
-    #[test]
-    fn choosing_a_device_or_signing_out_takes_the_audio_key_banner_away() {
-        let ctx = egui::Context::default();
-        let mut app = test_app("audio-key-banner-device");
-        app.handle_local(local_refusal(1));
-        app.apply(Action::PlayOnAnotherDevice, &ctx);
-        assert!(app.show_devices, "the device picker opens");
-        app.apply(Action::PlayOnAnotherDevice, &ctx);
-        assert!(app.show_devices, "and stays open");
-        assert!(app.audio_key_banner, "until a device is chosen");
-        app.apply(Action::Transfer("phone".into()), &ctx);
-        assert!(!app.audio_key_banner);
-
-        app.audio_key_banner = true;
-        app.handle_auth(AuthStatus::SignedOut);
-        assert!(!app.audio_key_banner);
-    }
-
-    #[test]
-    fn a_rate_limited_shared_app_brings_up_the_slow_banner_for_premium() {
-        let mut app = premium_on_shared_app("slow-banner");
-        let now: jiff::Timestamp = "2026-10-21T09:00:00Z".parse().unwrap();
-        app.maybe_show_slow_banner(now);
-        assert!(!app.slow_banner, "no rate limit, no banner");
-
-        app.shared_rate_limited_at = Some(Instant::now());
-        app.maybe_show_slow_banner(now);
-        assert!(app.slow_banner);
-        assert!(app.dialog.is_none(), "the banner is not a dialog");
-        assert_eq!(
-            app.settings.slow_app_banner.shown_at.as_deref(),
-            Some("2026-10-21T09:00:00Z")
-        );
-        assert!(app.settings_dirty, "the time it appeared must be saved");
-
-        app.apply(Action::CloseSlowBanner, &egui::Context::default());
-        assert!(!app.slow_banner);
-        assert_eq!(app.settings.slow_app_banner.dismissals, 1);
-
-        // An old rate limit does not bring it back once a day has passed.
-        let tomorrow = now + SLOW_BANNER_INTERVAL;
-        app.shared_rate_limited_at = Instant::now().checked_sub(SLOW_BANNER_FRESH);
-        app.maybe_show_slow_banner(tomorrow);
-        assert!(!app.slow_banner);
-    }
-
-    #[test]
-    fn the_slow_banner_waits_for_premium_on_the_shared_app() {
-        let now: jiff::Timestamp = "2026-10-21T09:00:00Z".parse().unwrap();
-        let mut app = premium_on_shared_app("slow-banner-eligibility");
-        app.shared_rate_limited_at = Some(Instant::now());
-        for product in [None, Some("free"), Some("open")] {
-            app.user = Some(User {
-                product: product.map(str::to_string),
-                ..User::default()
-            });
-            app.maybe_show_slow_banner(now);
-            assert!(!app.slow_banner, "{product:?}");
-        }
-        app.user = Some(User {
-            product: Some("premium".into()),
-            ..User::default()
-        });
-        app.settings.web_client_id = Some("personal-client".into());
-        app.maybe_show_slow_banner(now);
-        assert!(!app.slow_banner, "a configured personal app");
-        app.settings.web_client_id = None;
-        app.web_app = Some("personal-client".into());
-        app.maybe_show_slow_banner(now);
-        assert!(!app.slow_banner, "an active personal app");
-        app.web_app = None;
-        app.offline = true;
-        app.maybe_show_slow_banner(now);
-        assert!(!app.slow_banner, "offline");
-        app.offline = false;
-        app.dialog = Some(Dialog::Shortcuts);
-        app.maybe_show_slow_banner(now);
-        assert!(!app.slow_banner, "a dialog is up");
-        app.dialog = None;
-        app.open(Page::Settings);
-        app.maybe_show_slow_banner(now);
-        assert!(!app.slow_banner, "on the Settings page");
-        app.open(Page::Home);
-        app.maybe_show_slow_banner(now);
-        assert!(app.slow_banner);
-
-        // Setting up a personal app takes the banner away.
-        app.web_app = Some("personal-client".into());
-        app.maybe_show_slow_banner(now);
-        assert!(!app.slow_banner);
-        assert_eq!(app.settings.slow_app_banner.dismissals, 0);
-    }
-
-    #[test]
-    fn the_slow_banner_shows_once_a_day_and_stops_after_three_closes() {
-        let mut app = premium_on_shared_app("slow-banner-frequency");
-        let ctx = egui::Context::default();
-        let mut now: jiff::Timestamp = "2026-10-21T09:00:00Z".parse().unwrap();
-        for closed in 1..=crate::settings::SlowAppBanner::MAX_DISMISSALS {
-            app.shared_rate_limited_at = Some(Instant::now());
-            app.maybe_show_slow_banner(now);
-            assert!(app.slow_banner, "day {closed}");
-            app.apply(Action::CloseSlowBanner, &ctx);
-            app.maybe_show_slow_banner(now + jiff::SignedDuration::from_hours(23));
-            assert!(!app.slow_banner, "at most once a day");
-            assert_eq!(app.settings.slow_app_banner.dismissals, closed);
-            now += SLOW_BANNER_INTERVAL;
-        }
-        app.shared_rate_limited_at = Some(Instant::now());
-        app.maybe_show_slow_banner(now + SLOW_BANNER_INTERVAL);
-        assert!(!app.slow_banner, "closed three times, never again");
-
-        // The count survives a restart.
-        let saved = serde_json::to_string(&app.settings).unwrap();
-        let mut restarted = premium_on_shared_app("slow-banner-frequency-restart");
-        restarted.settings = serde_json::from_str(&saved).unwrap();
-        restarted.shared_rate_limited_at = Some(Instant::now());
-        restarted.maybe_show_slow_banner(now + SLOW_BANNER_INTERVAL);
-        assert!(!restarted.slow_banner);
-    }
-
-    #[test]
-    fn answering_the_intro_counts_as_todays_slow_banner() {
-        let mut app = premium_on_shared_app("slow-banner-after-intro");
-        app.settings.personal_app_intro_seen = false;
-        app.maybe_suggest_personal_app();
-        assert!(matches!(app.dialog, Some(Dialog::PersonalAppIntro)));
-        app.shared_rate_limited_at = Some(Instant::now());
-        app.maybe_show_slow_banner(jiff::Timestamp::now());
-        assert!(!app.slow_banner, "not over the intro");
-        app.apply(Action::CloseDialog, &egui::Context::default());
-        app.maybe_show_slow_banner(jiff::Timestamp::now());
-        assert!(!app.slow_banner, "not straight after the intro either");
-        assert_eq!(app.settings.slow_app_banner.dismissals, 0);
-    }
-
-    #[test]
-    fn missing_invalid_and_future_banner_times_do_not_hold_it_back() {
-        let now: jiff::Timestamp = "2026-10-21T09:00:00Z".parse().unwrap();
-        assert!(slow_banner_due(None, now));
-        assert!(slow_banner_due(Some("not a timestamp"), now));
-        assert!(slow_banner_due(Some("2026-10-22T09:00:00Z"), now));
-        assert!(!slow_banner_due(Some("2026-10-21T08:00:00Z"), now));
-    }
-
     fn play(uri: &str, at: &str) -> crate::api::models::PlayHistory {
         crate::api::models::PlayHistory {
             track: crate::api::models::Track {
@@ -22827,6 +22299,33 @@ mod tests {
         }
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn personal_updates_cannot_download_or_install_an_app_package() {
+        use crate::updates::{DownloadState, Installation, Kind, Prepared};
+        let mut app = headless_app();
+        let ctx = egui::Context::default();
+        app.update = Some(crate::updates::Release {
+            version: "9.9.9".into(),
+            url: crate::spotify_compat::RELEASES_URL.into(),
+        });
+        app.apply(Action::DownloadUpdate, &ctx);
+        assert!(matches!(app.update_download, DownloadState::Idle));
+        app.update_download = DownloadState::Ready(Box::new(Prepared::sample(
+            Installation {
+                executable: "/test/Spotify".into(),
+                kind: Kind::MacBundle,
+            },
+            "9.9.9",
+        )));
+        app.apply(Action::InstallUpdate, &ctx);
+        assert!(
+            matches!(app.update_download, DownloadState::Ready(_)),
+            "manual builds must never run the installer"
+        );
+        app.backend.shutdown();
+    }
+
     /// An automatic download put off on a metered connection starts once the
     /// connection is not, rather than at the next daily check, and not while
     /// the connection is down: a download that fails would stop the next
@@ -22875,10 +22374,13 @@ mod tests {
 
         change_power(&app, |conditions| conditions.online = true);
         pass(&mut app);
-        assert!(matches!(
-            app.update_download,
-            DownloadState::Downloading { .. }
-        ));
+        assert_eq!(
+            matches!(app.update_download, DownloadState::Downloading { .. }),
+            !crate::updates::MANUAL_DOWNLOADS
+        );
+        if crate::updates::MANUAL_DOWNLOADS {
+            assert!(matches!(app.update_download, DownloadState::Idle));
+        }
     }
 
     /// A step held while automatic downloads are off waits for them to be
@@ -22906,20 +22408,27 @@ mod tests {
             output.textures_delta.clear();
         };
         pass(&mut app);
-        assert!(app.held_update.is_some());
+        assert_eq!(app.held_update.is_some(), !crate::updates::MANUAL_DOWNLOADS);
 
         app.settings.download_updates_automatically = false;
         change_power(&app, |conditions| conditions.metered = false);
         pass(&mut app);
         assert!(matches!(app.update_download, DownloadState::Idle));
-        assert!(app.held_update.is_some(), "dropped while turned off");
+        assert_eq!(
+            app.held_update.is_some(),
+            !crate::updates::MANUAL_DOWNLOADS,
+            "manual builds never hold an automatic download"
+        );
 
         app.settings.download_updates_automatically = true;
         pass(&mut app);
-        assert!(matches!(
-            app.update_download,
-            DownloadState::Downloading { .. }
-        ));
+        assert_eq!(
+            matches!(app.update_download, DownloadState::Downloading { .. }),
+            !crate::updates::MANUAL_DOWNLOADS
+        );
+        if crate::updates::MANUAL_DOWNLOADS {
+            assert!(matches!(app.update_download, DownloadState::Idle));
+        }
     }
 
     /// MPRIS hands the desktop the artwork URL and reads no file, so the
@@ -24451,7 +23960,7 @@ mod tests {
         assert_eq!(app.update, None);
         assert_eq!(
             app.toasts.last().map(|toast| toast.message.as_str()),
-            Some("Spotifast is up to date")
+            Some(format!("{} is up to date", crate::spotify_compat::DISPLAY_NAME).as_str())
         );
 
         app.toasts.clear();
@@ -24500,7 +24009,7 @@ mod tests {
         );
         assert_eq!(
             app.toasts.last().map(|toast| toast.message.as_str()),
-            Some("Spotifast 1.2.3 is available")
+            Some(format!("{} 1.2.3 is available", crate::spotify_compat::DISPLAY_NAME).as_str())
         );
     }
 
@@ -26508,9 +26017,8 @@ mod tests {
         assert!(!app.row_playable(&held));
         let folder = std::path::PathBuf::from("/music");
         app.settings.local_files_folder = Some("/music".into());
-        let uris = Arc::new(HashMap::from([(
-            local_file_key("spotify:local:The+Artist:An+Album:A+Song:215"),
-            std::path::PathBuf::from("/music/A Song.mp3"),
+        let uris = Arc::new(HashSet::from([local_file_key(
+            "spotify:local:The+Artist:An+Album:A+Song:215",
         )]));
         // A scan of a folder since replaced is ignored.
         app.handle_backend_events(vec![Event::LocalFiles {
@@ -26528,38 +26036,6 @@ mod tests {
             uri: "spotify:track:abc".into(),
             ..Default::default()
         })));
-    }
-
-    /// A local file's cover comes from the file it plays from, on its row
-    /// and as the playing cover, and a file read and found to hold none
-    /// keeps the placeholder (#1001).
-    #[test]
-    fn a_local_file_shows_the_cover_in_its_file() {
-        let uri = "spotify:local:The+Artist:An+Album:A+Song:215";
-        let file = std::path::PathBuf::from("/music/A Song.mp3");
-        let mut app = headless_app();
-        app.backend.set_offline(true);
-        assert_eq!(app.item_image(&local_track(uri), 64), None);
-        app.settings.local_files_folder = Some("/music".into());
-        app.local_files = Some((
-            "/music".into(),
-            Arc::new(HashMap::from([(local_file_key(uri), file.clone())])),
-        ));
-        let url = crate::local_tags::art_url(&file);
-        assert_eq!(app.item_image(&local_track(uri), 64), Some(url.clone()));
-        assert_eq!(app.local_file(uri), Some(file.as_path()));
-        assert_eq!(app.local_file("spotify:track:abc"), None);
-        assert_eq!(app.local_art("spotify:local:Someone:Else:Song:100"), None);
-        app.local_ready = true;
-        app.local.playback = Playback::Playing;
-        app.local.track = Some(crate::player::LocalTrack {
-            uri: uri.into(),
-            title: "A Song".into(),
-            ..Default::default()
-        });
-        let now = app.now_playing().unwrap();
-        assert_eq!(now.art_url.as_deref(), Some(url.as_str()));
-        assert_eq!(now.art_small.as_deref(), Some(url.as_str()));
     }
 
     /// Choosing or removing the folder saves it and restarts local playback,

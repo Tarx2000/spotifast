@@ -1264,18 +1264,10 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
             "local-files" => {
                 demo_local_rows(app);
                 app.settings.local_files_folder = Some("/home/you/Music".into());
-                let mut uris: std::collections::HashMap<String, std::path::PathBuf> = (0..127)
-                    .map(|n| {
-                        (
-                            format!("spotify:local:Demo:Demo:Song+{n}:180"),
-                            format!("/home/you/Music/Song {n}.mp3").into(),
-                        )
-                    })
+                let mut uris: std::collections::HashSet<String> = (0..127)
+                    .map(|n| format!("spotify:local:Demo:Demo:Song+{n}:180"))
                     .collect();
-                uris.insert(
-                    crate::app::local_file_key(DEMO_LOCAL_FOUND),
-                    "/home/you/Music/Kitchen Demo.mp3".into(),
-                );
+                uris.insert(crate::app::local_file_key(DEMO_LOCAL_FOUND));
                 app.local_files = Some(("/home/you/Music".into(), std::sync::Arc::new(uris)));
             }
             "rtl" => {
@@ -1308,8 +1300,6 @@ pub fn apply_flags(app: &mut App, page: Option<&str>, show: Option<&str>) {
                 });
             }
             "personal-app" => app.dialog = Some(Dialog::PersonalAppIntro),
-            "slow-banner" => app.slow_banner = true,
-            "audio-key-banner" => app.audio_key_banner = true,
             "many-devices" => {
                 app.show_devices = true;
                 app.devices.extend((0..40).map(|index| Device {
@@ -3191,93 +3181,6 @@ mod tests {
     }
 
     #[test]
-    fn slow_banner_closes_or_opens_personal_app_setup() {
-        use egui::accesskit::{Action as AccessibleAction, Role};
-
-        for setup in [false, true] {
-            let (ctx, mut app) = accessible_app(&format!("slow-banner-{setup}"));
-            app.slow_banner = true;
-            accessible_frame(&ctx, &mut app, vec![]);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            let button = accessible_node(
-                &tree,
-                if setup {
-                    "Set up personal app"
-                } else {
-                    "Close banner"
-                },
-                Role::Button,
-            );
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(button, AccessibleAction::Click, None)],
-            );
-            assert!(!app.slow_banner);
-            assert!(app.dialog.is_none());
-            if setup {
-                assert_eq!(app.page(), &Page::Settings);
-                assert_eq!(app.settings.slow_app_banner.dismissals, 0);
-            } else {
-                assert_eq!(app.settings.slow_app_banner.dismissals, 1);
-            }
-            app.backend.shutdown();
-        }
-    }
-
-    #[test]
-    fn audio_key_banner_opens_the_device_picker_or_closes() {
-        use egui::accesskit::{Action as AccessibleAction, Role};
-
-        for other_device in [false, true] {
-            let (ctx, mut app) = accessible_app(&format!("audio-key-banner-{other_device}"));
-            app.audio_key_banner = true;
-            app.slow_banner = true;
-            app.show_devices = false;
-            let title = "Spotify won't let this computer play this song right now.";
-            let shows = |tree: &egui::accesskit::TreeUpdate, text: &str| {
-                tree.nodes
-                    .iter()
-                    .any(|(_, node)| node.label() == Some(text) || node.value() == Some(text))
-            };
-            app.dialog = Some(Dialog::Shortcuts);
-            accessible_frame(&ctx, &mut app, vec![]);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            assert!(!shows(&tree, title), "not over a dialog");
-            app.dialog = None;
-            accessible_frame(&ctx, &mut app, vec![]);
-            let tree = accessible_frame(&ctx, &mut app, vec![]);
-            assert!(shows(&tree, title));
-            assert!(
-                !shows(&tree, "Spotify is being slow on the shared app."),
-                "one banner at a time, the audio key's first"
-            );
-            let button = accessible_node(
-                &tree,
-                if other_device {
-                    "Play on another device"
-                } else {
-                    "Close banner"
-                },
-                Role::Button,
-            );
-            accessible_frame(
-                &ctx,
-                &mut app,
-                vec![accessible_action(button, AccessibleAction::Click, None)],
-            );
-            if other_device {
-                assert!(app.show_devices, "the device picker opens");
-                assert!(app.audio_key_banner, "until a device is chosen");
-            } else {
-                assert!(!app.audio_key_banner);
-                assert!(app.slow_banner, "the slow banner's turn comes next");
-            }
-            app.backend.shutdown();
-        }
-    }
-
-    #[test]
     fn personal_app_intro_can_be_dismissed_or_open_setup_with_keyboard_focus() {
         use egui::accesskit::{Action as AccessibleAction, Role};
 
@@ -3291,7 +3194,7 @@ mod tests {
                 if setup {
                     "Set up personal app"
                 } else {
-                    "Not now"
+                    "Keep shared app"
                 },
                 Role::Button,
             );
@@ -3352,6 +3255,20 @@ mod tests {
         // widgets it has not shown out of the screen-reader tree.
         accessible_frame(&ctx, &mut app, vec![]);
         let tree = accessible_frame(&ctx, &mut app, vec![]);
+        if crate::updates::MANUAL_DOWNLOADS {
+            accessible_node(&tree, "Download from GitHub", Role::Link);
+            assert!(
+                !tree
+                    .nodes
+                    .iter()
+                    .any(|(_, node)| node.label() == Some("Restart to update"))
+            );
+            app.actions.push(Action::DownloadUpdate);
+            accessible_frame(&ctx, &mut app, vec![]);
+            assert!(matches!(app.update_download, DownloadState::Idle));
+            app.backend.shutdown();
+            return;
+        }
         let download = accessible_node(&tree, "Download update", Role::Button);
         accessible_frame(
             &ctx,
@@ -3674,11 +3591,14 @@ mod tests {
                 "Download updates automatically",
             ),
         ] {
-            let query = if cfg!(target_os = "macos") && query == "Ctrl+0" {
-                "Cmd+0"
-            } else {
-                query
-            };
+            let query =
+                if crate::updates::MANUAL_DOWNLOADS && query == "Downloads in the background" {
+                    "installed manually"
+                } else if cfg!(target_os = "macos") && query == "Ctrl+0" {
+                    "Cmd+0"
+                } else {
+                    query
+                };
             let text = settings_text(&ctx, &mut app, query);
             assert!(text.iter().any(|text| text == row), "{query}: {text:?}");
         }
@@ -6716,7 +6636,7 @@ mod tests {
                             "{:?} is cut off at {size:?} in {state:?}",
                             text.galley.job.text
                         );
-                        if text.galley.job.text == "Spotifast" {
+                        if text.galley.job.text == crate::spotify_compat::DISPLAY_NAME {
                             title = Some(rect);
                         }
                     }

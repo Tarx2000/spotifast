@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE dictionary SYSTEM "file://localhost/System/Library/DTDs/sdef.dtd">
+<dictionary title="Spotify Compatibility Terminology">
+  <suite name="Standard Suite" code="????" description="Standard application commands.">
+    <command name="quit" code="aevtquit"></command>
+    <class name="application" code="capp" description="Personal Spotifast build with Spotify compatibility.">
+
+      <property name="name" code="pnam" type="text" access="r"></property>
+      <property name="version" code="vers" type="text" access="r"></property>
+    </class>
+  </suite>
+  <suite name="Spotify Suite" code="spfy" description="Common commands forwarded to Spotifast.">
+    <command name="next track" code="spfyNext"></command>
+    <command name="previous track" code="spfyPrev"></command>
+    <command name="playpause" code="spfyPlPs"></command>
+    <command name="pause" code="spfyPaus"></command>
+    <command name="play" code="spfyPlay"></command>
+    <command name="play track" code="spfyPCtx">
+
+      <direct-parameter type="text"/>
+      <parameter name="in context" code="ctxt" type="text" optional="yes"></parameter>
+    </command>
+    <enumeration name="player state" code="ePlS">
+      <enumerator name="stopped" code="kPSS"/>
+      <enumerator name="playing" code="kPSP"/>
+      <enumerator name="paused" code="kPSp"/>
+    </enumeration>
+    <class-extension extends="application">
+      <property name="current track" code="pTrk" type="track" access="r"></property>
+      <property name="sound volume" code="pVol" type="integer"></property>
+      <property name="player state" code="pPlS" type="player state" access="r"></property>
+      <property name="player position" code="pPos" type="real"></property>
+      <property name="repeating" code="pRpt" type="boolean"></property>
+      <property name="shuffling" code="pShf" type="boolean"></property>
+      <property name="repeating enabled" code="pRpE" type="boolean" access="r"></property>
+      <property name="shuffling enabled" code="pShE" type="boolean" access="r"></property>
+    </class-extension>
+    <class name="track" code="cTrk" description="Current track from the live player.">
+
+      <property name="name" code="pnam" type="text" access="r"></property>
+      <property name="artist" code="pArt" type="text" access="r"></property>
+      <property name="album" code="pAlb" type="text" access="r"></property>
+      <property name="duration" code="pDur" type="integer" access="r"></property>
+      <property name="id" code="ID  " type="text" access="r"></property>
+      <property name="artwork url" code="aUrl" type="text" access="r"></property>
+      <property name="spotify url" code="sUrl" type="text" access="r"></property>
+    </class>
+  </suite>
+</dictionary>

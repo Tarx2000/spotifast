@@ -490,6 +490,7 @@ pub(crate) fn run() -> eframe::Result<()> {
     #[cfg(target_os = "macos")]
     if let Some(guard) = &instance {
         spotifast::mac_links::install(guard.commands(), waker.clone());
+        spotifast::spotify_compat::install(guard.commands(), waker.clone());
     }
 
     // A capture run is a throwaway process next to the real one: no tray
@@ -641,7 +642,7 @@ pub(crate) fn run() -> eframe::Result<()> {
         #[cfg(target_os = "linux")]
         let hide_from_taskbar = options.viewport.taskbar == Some(false);
         eframe::run_native(
-            "Spotifast",
+            spotifast::spotify_compat::DISPLAY_NAME,
             options,
             Box::new(move |cc| {
                 if let Some(gl) = &cc.gl {
@@ -862,7 +863,7 @@ fn native_options(
         app_icon()
     };
     let viewport = egui::ViewportBuilder::default()
-        .with_title("Spotifast")
+        .with_title(spotifast::spotify_compat::DISPLAY_NAME)
         .with_app_id(app_id)
         .with_taskbar(true)
         .with_icon(icon);
@@ -1362,7 +1363,9 @@ impl Shell {
                 MenuCommand::Back => Action::Back,
                 MenuCommand::Forward => Action::Forward,
                 MenuCommand::OpenRepo => {
-                    ctx.open_url(egui::OpenUrl::new_tab("https://github.com/crmne/spotifast"));
+                    ctx.open_url(egui::OpenUrl::new_tab(
+                        spotifast::spotify_compat::SOURCE_URL,
+                    ));
                     continue;
                 }
                 // Editing goes through egui, which owns the text field

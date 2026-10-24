@@ -133,6 +133,16 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     });
                 }
                 DownloadState::Idle | DownloadState::Failed(_) => {
+                    if crate::updates::MANUAL_DOWNLOADS {
+                        let message = if locale == crate::i18n::Locale::German {
+                            "Diese Version enthält deine Spotify-Anpassungen. Lade Updates ausschließlich aus diesem persönlichen Fork. Nach dem Download ersetzt du die App; deine Einstellungen bleiben erhalten. macOS kann eine Freigabe über ‚Dennoch öffnen‘ verlangen."
+                        } else {
+                            "This build includes your Spotify customizations. Download updates only from this personal fork, then replace the app. Your settings are kept. macOS may require Open Anyway."
+                        };
+                        ui.add(egui::Label::new(RichText::new(message)
+                            .font(theme::regular(14.0)).color(palette.secondary)).wrap());
+                        release_link = gettext(locale, "Download from GitHub");
+                    } else {
                     if let DownloadState::Failed(error) = &app.update_download {
                         ui.add(
                             egui::Label::new(
@@ -170,6 +180,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                             ));
                         }
                     }
+                    }
                 }
             }
             ui.add_space(16.0);
@@ -185,7 +196,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                         RichText::new(release_link)
                             .font(theme::medium(13.0))
                             .color(palette.secondary),
-                        &release.url,
+                        crate::updates::download_page(&release.url),
                     ));
                 });
             });

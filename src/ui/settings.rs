@@ -126,7 +126,7 @@ fn eq_preset_controls(app: &mut App, ui: &mut egui::Ui, current: Option<&str>) {
 /// The GitHub release page of the running version, opened by About's
 /// Release notes button. Every release is tagged `v` and its version.
 const RELEASE_NOTES_URL: &str = concat!(
-    env!("CARGO_PKG_REPOSITORY"),
+    "https://github.com/Tarx2000/spotifast",
     "/releases/tag/v",
     env!("CARGO_PKG_VERSION")
 );
@@ -337,7 +337,7 @@ fn local_files_detail(app: &App) -> String {
     let Some(folder) = app.settings.local_files_folder() else {
         return gettext(
             locale,
-            "Play the local files your playlists list from a folder on this computer.",
+            "Play the local files your playlists list from a folder on this computer. Only 44.1 kHz files play.",
         )
         .into_owned();
     };
@@ -690,10 +690,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
         RowText::new(gettext(locale, "Playback settings applied"), "").when(!playback_dirty),
         RowText::new(
             download_updates.clone(),
-            gettext(
-                locale,
-                "Downloads in the background. You choose when to restart.",
-            ),
+            if crate::updates::MANUAL_DOWNLOADS {
+                std::borrow::Cow::Borrowed(if locale == crate::i18n::Locale::German {
+                    "Updates werden über die persönliche GitHub-Seite geladen und von dir installiert."
+                } else { "Updates are downloaded from the personal GitHub page and installed manually." })
+            } else { gettext(locale, "Downloads in the background. You choose when to restart.") },
         ),
         RowText::new(
             gettext(locale, "MacBook notch widget"),
@@ -961,6 +962,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 }
             });
             filtered_row(ui, &palette, &needle, &playback, &playback_rows[12], |ui| {
+                if crate::updates::MANUAL_DOWNLOADS {
+                    let mut automatic = false;
+                    ui.add_enabled_ui(false, |ui| {
+                        widgets::switch(ui, &palette, &download_updates, &mut automatic);
+                    });
+                    return;
+                }
                 if widgets::switch(
                     ui,
                     &palette,
@@ -2218,7 +2226,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
     let source_code = gettext(locale, "Source code");
     let about_rows = [
         RowText::new(
-            format!("Spotifast {}", env!("CARGO_PKG_VERSION")),
+            format!(
+                "{} {}",
+                crate::spotify_compat::DISPLAY_NAME,
+                env!("CARGO_PKG_VERSION")
+            ),
             built_with.clone(),
         ),
         RowText::new(
@@ -2235,7 +2247,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                 ui.vertical(|ui| {
                     theme::text(
                         ui,
-                        format!("Spotifast {}", env!("CARGO_PKG_VERSION")),
+                        format!(
+                            "{} {}",
+                            crate::spotify_compat::DISPLAY_NAME,
+                            env!("CARGO_PKG_VERSION")
+                        ),
                         theme::semibold(15.0),
                         palette.text,
                     );
@@ -2282,7 +2298,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                     .clicked()
                 {
                     ui.ctx()
-                        .open_url(egui::OpenUrl::new_tab(env!("CARGO_PKG_REPOSITORY")));
+                        .open_url(egui::OpenUrl::new_tab(crate::spotify_compat::SOURCE_URL));
                 }
             });
             ui.add_space(14.0);
@@ -2726,7 +2742,7 @@ mod tests {
         assert_eq!(
             RELEASE_NOTES_URL,
             format!(
-                "https://github.com/crmne/spotifast/releases/tag/v{}",
+                "https://github.com/Tarx2000/spotifast/releases/tag/v{}",
                 env!("CARGO_PKG_VERSION")
             )
         );

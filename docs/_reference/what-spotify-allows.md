@@ -34,8 +34,6 @@ Spotifast uses the Web API for:
 
 Users of the default app share Spotify's quota. Spotifast limits heavy
 requests and pauses a session when Spotify sends a `Retry-After` response.
-[Spotify is being slow](/troubleshooting/#rate-limits) explains it for
-listeners.
 
 Spotify also limits apps created since November 2024. These apps cannot access
 Spotify-owned playlists, related artists, recommendations, or audio features.
@@ -160,29 +158,15 @@ librespot provides:
   in Settings and its subfolders. Spotify keeps only a local file's artist,
   album, title and length, so the player matches each `spotify:local:` entry
   to the MP3, MP4, M4P or FLAC file whose tags and length give the same.
-  Files at any sample rate from 8 to 384 kHz play, mono and surround
-  included: librespot resamples them to 44.1 kHz stereo
-  ([librespot#1840](https://github.com/librespot-org/librespot/pull/1840)).
-  The player reads the folder when local playback starts, so songs added
-  later play after the next restart. See
-  [issue #3](https://github.com/crmne/spotifast/issues/3). Spotify's queue
-  refuses a `spotify:local:` entry, so such a song is queued on this
-  computer's own player, and only while it plays
-  ([issue #1002](https://github.com/crmne/spotifast/issues/1002)). Spotify
-  has no cover or lyrics for a local file either, so Spotifast reads them
-  from the file: the picture in its tags (an MP3's ID3 `APIC` frame or a
-  FLAC `PICTURE` block), and the words in a `.lrc` file of the same name
-  beside it or in its tags (ID3 `USLT` or a `LYRICS` comment), before
-  asking LRCLIB
-  ([issue #1001](https://github.com/crmne/spotifast/issues/1001)).
+  Only 44.1 kHz files play. The player reads the folder when local playback
+  starts, so songs added later play after the next restart. See
+  [issue #3](https://github.com/crmne/spotifast/issues/3).
 
 Spotify Premium is required. librespot cannot play audio with a free account.
 
 Spotifast uses a small librespot fork: librespot's development branch with a
 few patches that are also proposed upstream, such as normalisation data for the
-visualisers and an event for rejected audio keys. When Spotify refuses an
-audio key, nothing in Spotifast can fix it; see
-[Spotify refused the audio key](/troubleshooting/#audio-key). The patches are listed in
+visualisers and an event for rejected audio keys. They are listed in
 `Cargo.toml` and dropped as librespot merges them.
 
 ## Not available

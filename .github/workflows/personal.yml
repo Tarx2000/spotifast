@@ -1,0 +1,136 @@
+name: Personal Spotify build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: personal-stable-release
+  cancel-in-progress: false
+
+jobs:
+  upstream:
+    if: github.repository == 'Tarx2000/spotifast'
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.source.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate the patched source and Linux packaging on Linux
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 fork/prepare.py --output "$RUNNER_TEMP/candidate"
+          python3 "$RUNNER_TEMP/candidate/fork/test_automation.py"
+          (cd "$RUNNER_TEMP/candidate" && python3 .github/scripts/check-dependency-sources.py && python3 .github/scripts/check-review-evidence.py && python3 packaging/test-launchers.py)
+          python3 - <<'PYCODE'
+          import json, os
+          from pathlib import Path
+          tag = json.loads((Path(os.environ['RUNNER_TEMP'])/'candidate/fork/upstream.json').read_text())['upstream_tag']
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'tag={tag}\n')
+          PYCODE
+  build:
+    needs: upstream
+    if: github.repository == 'Tarx2000/spotifast'
+    runs-on: macos-latest
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Rebuild from a stable upstream release with every personal change
+        id: prepare
+        env:
+          UPSTREAM_TAG: ${{ needs.upstream.outputs.tag }}
+        run: python3 fork/prepare.py --write --tag "$UPSTREAM_TAG"
+      - name: Set up the pinned Rust toolchain
+        if: steps.prepare.outputs.changed == 'true'
+        run: |
+          rustup show
+          rustup target add aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        if: steps.prepare.outputs.changed == 'true'
+      - name: Check the complete personal integration and source policy
+        if: steps.prepare.outputs.changed == 'true'
+        run: |
+          python3 fork/verify.py
+          python3 fork/test_automation.py
+          python3 .github/scripts/check-dependency-sources.py
+          python3 .github/scripts/check-review-evidence.py
+          cargo fmt --all --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-targets
+          cargo test --locked --all-targets --all-features
+          cargo test --locked --all-features --doc
+          cargo build --locked --example spotify-event-fixture
+          python3 fork/test_native_events.py --binary target/debug/examples/spotify-event-fixture
+          RUSTDOCFLAGS='-D warnings' cargo doc --locked --all-features --no-deps
+      - name: Build the Apple silicon app
+        if: steps.prepare.outputs.changed == 'true'
+        run: cargo build --release --locked --target aarch64-apple-darwin
+      - name: Package without changing macOS security settings
+        if: steps.prepare.outputs.changed == 'true'
+        run: python3 fork/package.py --binary target/aarch64-apple-darwin/release/spotifast --output dist/personal --dmg
+      - name: Sign the package manifest with the personal update key
+        if: steps.prepare.outputs.changed == 'true'
+        env:
+          PERSONAL_UPDATE_SIGNING_KEY: ${{ secrets.PERSONAL_UPDATE_SIGNING_KEY }}
+        run: |
+          test -n "$PERSONAL_UPDATE_SIGNING_KEY"
+          umask 077
+          printf '%s\n' "$PERSONAL_UPDATE_SIGNING_KEY" > "$RUNNER_TEMP/personal-update.pem"
+          openssl pkeyutl -sign -rawin -inkey "$RUNNER_TEMP/personal-update.pem" -in dist/personal/checksums.txt -out dist/personal/checksums.txt.sig
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, tempfile
+          key = bytes.fromhex(Path('fork/update-public-key.hex').read_text().strip())
+          with tempfile.TemporaryDirectory() as directory:
+              public = Path(directory)/'public.der'
+              public.write_bytes(bytes.fromhex('302a300506032b6570032100') + key)
+              subprocess.run(['openssl', 'pkeyutl', '-verify', '-pubin', '-inkey', str(public), '-keyform', 'DER', '-rawin', '-in', 'dist/personal/checksums.txt', '-sigfile', 'dist/personal/checksums.txt.sig'], check=True)
+          PY
+          rm "$RUNNER_TEMP/personal-update.pem"
+      - name: Publish only the fully checked personal build
+        if: steps.prepare.outputs.changed == 'true'
+        env:
+          PERSONAL_VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          git config user.name 'Personal Spotifast builder'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if ! git diff --cached --quiet; then git commit -m "Build personal version $PERSONAL_VERSION from stable upstream"; fi
+          git push origin HEAD:main
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          source = json.loads(Path('fork/upstream.json').read_text())
+          Path('dist/personal/notes.md').write_text(
+              f"Personal Apple silicon build based on Spotifast {source['upstream_tag']}.\n\n"
+              "Includes the integrated Spotify identity, icon, Canopy Apple Events and the personal-only update channel. "
+              "One player process; no compatibility background app. Existing Spotifast profile paths are retained.\n\n"
+              "This is not an official Spotify app. The app is ad-hoc signed and is not notarized by Apple. "
+              "Download the DMG or ZIP and replace the app after quitting the old version. "
+              "macOS may require Open Anyway in Privacy & Security. No global security changes are needed.\n\n"
+              f"Upstream commit: `{source['upstream_commit']}`\n\n"
+              f"Personal patch SHA-256: `{source['patch_sha256']}`\n")
+          PY
+          python3 fork/publish.py --directory dist/personal --version "$PERSONAL_VERSION"

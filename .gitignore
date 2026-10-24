@@ -13,3 +13,8 @@ docs/.bundle/
 /.cache/
 
 /dist/
+
+# Personal build tooling
+__pycache__/
+*.pyc
+.DS_Store

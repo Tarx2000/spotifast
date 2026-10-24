@@ -2,7 +2,30 @@
 //! for every message a catalog has not translated yet. The interface follows
 //! the operating system's language unless Settings names another one.
 
-pub use fastframe_i18n::{gettext, ngettext, pgettext};
+use std::borrow::Cow;
+
+fn branded(text: Cow<'static, str>) -> Cow<'static, str> {
+    if cfg!(target_os = "macos") && text.contains("Spotifast") {
+        Cow::Owned(text.replace("Spotifast", "Spotify"))
+    } else {
+        text
+    }
+}
+
+pub fn gettext(locale: Locale, source: &'static str) -> Cow<'static, str> {
+    branded(fastframe_i18n::gettext(locale, source))
+}
+pub fn pgettext(locale: Locale, context: &'static str, source: &'static str) -> Cow<'static, str> {
+    branded(fastframe_i18n::pgettext(locale, context, source))
+}
+pub fn ngettext(
+    locale: Locale,
+    singular: &'static str,
+    plural: &'static str,
+    count: u32,
+) -> Cow<'static, str> {
+    branded(fastframe_i18n::ngettext(locale, singular, plural, count))
+}
 
 include!(concat!(env!("OUT_DIR"), "/catalogs.rs"));
 

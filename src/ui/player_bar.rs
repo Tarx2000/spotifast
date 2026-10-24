@@ -573,7 +573,7 @@ fn now_playing_block(app: &mut App, ui: &mut egui::Ui, region: Rect, now: Option
             ui.ctx(),
             DragTrack {
                 title: item.name().to_string(),
-                image: app.item_image(item, 64),
+                image: item.image(64).map(str::to_string),
                 items: vec![item.clone()],
                 from: None,
                 source_playlist: None,
