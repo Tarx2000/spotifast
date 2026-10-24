@@ -11,6 +11,24 @@ def gh(*args):
     return subprocess.check_output(['gh', *args], text=True)
 
 
+def find_release(repository, tag):
+    # GitHub's release-by-tag endpoint returns 404 for a draft. Listing releases
+    # with the publishing token includes drafts and gives their stable REST ID.
+    pages = json.loads(gh('api', '--paginate', '--slurp', f'repos/{repository}/releases'))
+    matches = [release for page in pages for release in page if release['tag_name'] == tag]
+    assert len(matches) <= 1, 'Ambiguous release tag.'
+    return matches[0] if matches else None
+
+
+def validate_assets(files, release):
+    assets = {asset['name']: asset for asset in release['assets']}
+    for file in files:
+        asset = assets[file.name]
+        assert asset['state'] == 'uploaded' and asset['size'] == file.stat().st_size
+        if asset.get('digest'):
+            assert asset['digest'] == 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest()
+
+
 def publish(directory, version):
     root = Path(__file__).resolve().parent.parent
     config = json.loads((root/'fork/config.json').read_text())
@@ -27,25 +45,24 @@ def publish(directory, version):
     if remote:
         actual = next((line.split()[0] for line in remote if line.endswith('^{}')), remote[0].split()[0])
         assert actual == commit, 'An existing tag names a different commit. Increase the personal revision.'
-    state = subprocess.run(['gh', 'api', f'repos/{repository}/releases/tags/{tag}'], capture_output=True, text=True)
-    if state.returncode == 0:
-        release = json.loads(state.stdout)
+    release = find_release(repository, tag)
+    if release:
         assert release['draft'], 'Published releases are immutable to this builder.'
         assert release['target_commitish'] == commit, 'Draft source changed. Increase the personal revision.'
     else:
-        if 'HTTP 404' not in state.stderr: raise RuntimeError('Could not inspect the personal release.')
         gh('release', 'create', tag, '--repo', repository, '--draft', '--target', commit,
            '--title', f'Spotify Personal {version}', '--notes-file', str(directory/'notes.md'))
-    gh('release', 'upload', tag, '--repo', repository, '--clobber', *map(str, files))
-    release = json.loads(gh('api', f'repos/{repository}/releases/tags/{tag}'))
+        release = find_release(repository, tag)
+        assert release and release['draft'] and release['target_commitish'] == commit
+    release_id = release['id']
+    try:
+        validate_assets(files, release)
+    except (KeyError, AssertionError):
+        gh('release', 'upload', tag, '--repo', repository, '--clobber', *map(str, files))
+    release = json.loads(gh('api', f'repos/{repository}/releases/{release_id}'))
     assert release['draft']
-    assets = {asset['name']: asset for asset in release['assets']}
-    for file in files:
-        asset = assets[file.name]
-        assert asset['state'] == 'uploaded' and asset['size'] == file.stat().st_size
-        # GitHub exposes a SHA-256 asset digest on supported API versions.
-        if asset.get('digest'):
-            assert asset['digest'] == 'sha256:' + hashlib.sha256(file.read_bytes()).hexdigest()
+    assert release['tag_name'] == tag and release['target_commitish'] == commit
+    validate_assets(files, release)
     gh('release', 'edit', tag, '--repo', repository, '--draft=false', '--latest')
     print(f'Published {repository} {tag} with all verified assets.')
 

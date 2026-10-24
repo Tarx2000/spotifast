@@ -1,15 +1,35 @@
 #!/usr/bin/env python3
 """Regression checks for release ordering and fail-closed patch application."""
 import json
+import hashlib
 from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from prepare import stamp_version, version_for
+from publish import find_release, validate_assets
 
 
 class AutomationTests(unittest.TestCase):
+    def test_draft_releases_are_found_by_listing_instead_of_the_published_tag_endpoint(self):
+        draft = {'id': 12, 'tag_name': 'v0.14.1001', 'draft': True}
+        with patch('publish.gh', return_value=json.dumps([[], [draft]])) as request:
+            self.assertEqual(find_release('owner/repo', 'v0.14.1001'), draft)
+            request.assert_called_once_with('api', '--paginate', '--slurp', 'repos/owner/repo/releases')
+
+    def test_incomplete_or_modified_assets_cannot_be_published(self):
+        with tempfile.TemporaryDirectory() as name:
+            package = Path(name)/'package.zip'
+            package.write_bytes(b'checked package')
+            asset = {'name': package.name, 'state': 'uploaded', 'size': package.stat().st_size,
+                     'digest': 'sha256:' + hashlib.sha256(package.read_bytes()).hexdigest()}
+            validate_assets([package], {'assets': [asset]})
+            with self.assertRaises(KeyError): validate_assets([package], {'assets': []})
+            for change in [{'state': 'new'}, {'size': 0}, {'digest': 'sha256:' + '0' * 64}]:
+                with self.assertRaises(AssertionError): validate_assets([package], {'assets': [asset | change]})
+
     def test_upstream_and_personal_updates_have_distinct_ordered_versions(self):
         tags = ['v0.14.1', 'v0.14.2', 'v0.15.0', 'v1.0.0']
         versions = [tuple(map(int, version_for(t, 1).split('.'))) for t in tags]
