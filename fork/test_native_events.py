@@ -23,7 +23,7 @@ contents = app/'Contents'
 shutil.copy2(args.binary.resolve(), contents/'MacOS/Fixture')
 shutil.copy2(source/'packaging/macos/Spotify.sdef', contents/'Resources/Spotify.sdef')
 (contents/'Info.plist').write_bytes(plistlib.dumps({
-    'CFBundleIdentifier': 'com.spotify.client', 'CFBundleName': 'Spotify',
+    'CFBundleIdentifier': 'rocks.spotifast.event-fixture', 'CFBundleName': 'Spotify',
     'CFBundleDisplayName': 'Spotify', 'CFBundleExecutable': 'Fixture',
     'CFBundlePackageType': 'APPL', 'NSAppleScriptEnabled': True,
     'OSAScriptingDefinition': 'Spotify.sdef', 'LSUIElement': True,
