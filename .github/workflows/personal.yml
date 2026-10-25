@@ -127,8 +127,11 @@ jobs:
           source = json.loads(Path('fork/upstream.json').read_text())
           Path('dist/personal/notes.md').write_text(
               f"Personal Apple silicon build based on Spotifast {source['upstream_tag']}.\n\n"
-              "Includes the integrated Spotify identity, icon, Canopy Apple Events and the personal-only update channel. "
+              "Includes the integrated Spotify identity, icon, Canopy playback controls and likes, and the personal-only update channel. "
               "One player process; no compatibility background app. Existing Spotifast profile paths are retained.\n\n"
+              "Canopy's heart uses a bundled spotify_cli entry point in the same executable. "
+              "It supports the current track's now-playing and library contains/add/remove requests over the existing local control channel. "
+              "It exits after the request; no extra account, player, or background service is created.\n\n"
               "This is not an official Spotify app. The app is ad-hoc signed and is not notarized by Apple. "
               "Download the DMG or ZIP and replace the app after quitting the old version. "
               "macOS may require Open Anyway in Privacy & Security. No global security changes are needed.\n\n"

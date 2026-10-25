@@ -5,19 +5,45 @@ import hashlib
 import json
 from pathlib import Path
 import subprocess
+import time
 
 
-def gh(*args):
-    return subprocess.check_output(['gh', *args], text=True)
+def gh(*args, stdin_text=None):
+    return subprocess.check_output(['gh', *args], input=stdin_text, text=True, stderr=subprocess.PIPE)
 
 
 def find_release(repository, tag):
     # GitHub's release-by-tag endpoint returns 404 for a draft. Listing releases
     # with the publishing token includes drafts and gives their stable REST ID.
-    pages = json.loads(gh('api', '--paginate', '--slurp', f'repos/{repository}/releases'))
+    pages = json.loads(gh('api', '--paginate', '--slurp', '-H', 'Cache-Control: no-cache',
+                          f'repos/{repository}/releases'))
     matches = [release for page in pages for release in page if release['tag_name'] == tag]
     assert len(matches) <= 1, 'Ambiguous release tag.'
     return matches[0] if matches else None
+
+
+def create_draft(repository, tag, commit, version, notes):
+    # Use the POST response's ID directly. An immediately repeated list request
+    # can still omit the new draft even though creation succeeded.
+    payload = {'tag_name': tag, 'target_commitish': commit, 'draft': True,
+               'prerelease': False, 'name': f'Spotify Personal {version}', 'body': notes}
+    release = json.loads(gh('api', '--method', 'POST', f'repos/{repository}/releases',
+                            '--input', '-', stdin_text=json.dumps(payload)))
+    assert release['draft'] and release['tag_name'] == tag
+    assert release['target_commitish'] == commit
+    assert isinstance(release['id'], int)
+    return release
+
+
+def release_by_id(repository, release_id):
+    for attempt in range(4):
+        try:
+            return json.loads(gh('api', '-H', 'Cache-Control: no-cache',
+                                 f'repos/{repository}/releases/{release_id}'))
+        except subprocess.CalledProcessError as error:
+            if attempt == 3 or 'HTTP 404' not in (error.stderr or ''):
+                raise
+            time.sleep(2 ** attempt)
 
 
 def validate_assets(files, release):
@@ -50,16 +76,13 @@ def publish(directory, version):
         assert release['draft'], 'Published releases are immutable to this builder.'
         assert release['target_commitish'] == commit, 'Draft source changed. Increase the personal revision.'
     else:
-        gh('release', 'create', tag, '--repo', repository, '--draft', '--target', commit,
-           '--title', f'Spotify Personal {version}', '--notes-file', str(directory/'notes.md'))
-        release = find_release(repository, tag)
-        assert release and release['draft'] and release['target_commitish'] == commit
+        release = create_draft(repository, tag, commit, version, (directory/'notes.md').read_text())
     release_id = release['id']
     try:
         validate_assets(files, release)
     except (KeyError, AssertionError):
         gh('release', 'upload', tag, '--repo', repository, '--clobber', *map(str, files))
-    release = json.loads(gh('api', f'repos/{repository}/releases/{release_id}'))
+    release = release_by_id(repository, release_id)
     assert release['draft']
     assert release['tag_name'] == tag and release['target_commitish'] == commit
     validate_assets(files, release)
@@ -72,4 +95,7 @@ if __name__ == '__main__':
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--version', required=True)
     args = parser.parse_args()
-    publish(args.directory.resolve(), args.version)
+    try:
+        publish(args.directory.resolve(), args.version)
+    except subprocess.CalledProcessError as error:
+        raise SystemExit((error.stderr or '').strip() or str(error)) from error
