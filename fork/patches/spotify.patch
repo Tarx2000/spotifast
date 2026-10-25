@@ -1,5 +1,5 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 9e785bc198e5843c835f6da34e7c1400e1dc5c56..ecde599b9aa22999e396914994dd93fbe6e488fd 100644
+index 9e785bc198e5843c835f6da34e7c1400e1dc5c56..80814d2722bf5afa0c92340710dbe63a89ff8989 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -199,7 +199,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std",
@@ -177,10 +177,10 @@ index 98e4e25348e4824ceeb5ff3a3aaff9eb224c0d55..8e64f444934c409e720cbca73ee8ee26
          <string>--start-hidden</string>
      </array>
 diff --git a/packaging/macos/bundle.sh b/packaging/macos/bundle.sh
-index 64a4979c84ae562d814e6e1ca7d37f133661c6ce..1866f1e0862b338f73cb641883417e8e12e0b304 100755
+index 64a4979c84ae562d814e6e1ca7d37f133661c6ce..14b6cddb490040914f22e2cbea25956677ba3008 100755
 --- a/packaging/macos/bundle.sh
 +++ b/packaging/macos/bundle.sh
-@@ -18,9 +18,10 @@ here="$(cd "$(dirname "$0")" && pwd)"
+@@ -18,10 +18,12 @@ here="$(cd "$(dirname "$0")" && pwd)"
  rm -rf "$app"
  mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
  
@@ -191,8 +191,10 @@ index 64a4979c84ae562d814e6e1ca7d37f133661c6ce..1866f1e0862b338f73cb641883417e8e
  cp "$binary" "$app/Contents/MacOS/$executable"
 +cp "$here/Spotify.sdef" "$app/Contents/Resources/Spotify.sdef"
  chmod 755 "$app/Contents/MacOS/$executable"
++ln -s "$executable" "$app/Contents/MacOS/spotify_cli"
  # The build number has to be numbers: a release candidate's -rc1 comes off.
  build="${version%%-*}"
+ sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" \
 diff --git a/packaging/macos/icon-1024.png b/packaging/macos/icon-1024.png
 index 783081b6d2544b46258a636dbb265c4356055276..d1f4441e5d4a6fa91371e2d4fea093215639dd17 100644
 GIT binary patch
@@ -3713,7 +3715,7 @@ z2`*?lR!0r!D^by``G<`#L=sw61aHl^4a|&SQo?~H{{QoTvjEO!UuKP@HOtEgT;!}|
 NZfbdfVB&u7zW~wMffxV)
 
 diff --git a/src/app.rs b/src/app.rs
-index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099d65733b6 100644
+index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce6440a31de0 100644
 --- a/src/app.rs
 +++ b/src/app.rs
 @@ -776,7 +776,7 @@ const RECENTS_PAGE: u32 = 50;
@@ -3734,7 +3736,22 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
          icon: util::app_icon_rgba,
          template_icon: Some(util::tray_template_rgba),
          themed_icon: true,
-@@ -4544,6 +4544,8 @@ impl App {
+@@ -4374,6 +4374,14 @@ impl App {
+                 ControlCommand::ToggleSaved => {
+                     self.now_playing().map(|now| Action::ToggleSaved(now.uri))
+                 }
++                ControlCommand::SetSaved { uri, saved } => Some(Action::SetSavedMany {
++                    uris: if saved {
++                        vec![uri]
++                    } else {
++                        self.saved_toggle_targets(&uri)
++                    },
++                    saved,
++                }),
+                 ControlCommand::PlayUri(uri) => Some(Action::PlayContext {
+                     uri,
+                     offset_uri: None,
+@@ -4544,6 +4552,8 @@ impl App {
                  ..MediaState::default()
              },
          };
@@ -3743,7 +3760,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
          if let Some(controls) = &mut self.media_controls {
              controls.update(state);
          }
-@@ -4573,6 +4575,26 @@ impl App {
+@@ -4573,9 +4583,29 @@ impl App {
          }
      }
  
@@ -3769,8 +3786,29 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
 +
      /// One line for the control channel's `nowplaying` verb: tab-separated
      /// `state, title, artists, album, position_ms, duration_ms, volume,
-     /// shuffle, repeat, art_url, saved, device`, or
-@@ -11271,6 +11293,9 @@ impl App {
+-    /// shuffle, repeat, art_url, saved, device`, or
++    /// shuffle, repeat, art_url, saved, device, uri`, or
+     /// [`crate::single_instance::NOTHING_PLAYING`].
+     ///
+     /// The last three are what a Stream Deck key needs and a media key does
+@@ -4612,7 +4642,7 @@ impl App {
+             }
+         }
+         format!(
+-            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{saved}\t{}",
++            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{saved}\t{}\t{}",
+             clean(&now.title),
+             clean(&now.subtitle),
+             clean(&now.album_name),
+@@ -4623,6 +4653,7 @@ impl App {
+             now.repeat.api_name(),
+             clean(now.art_url.as_deref().unwrap_or_default()),
+             clean(device),
++            clean(&now.uri),
+         )
+     }
+ 
+@@ -11271,6 +11302,9 @@ impl App {
                  }
              }
              Action::DownloadUpdate => {
@@ -3780,7 +3818,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
                  if matches!(
                      self.update_download,
                      crate::updates::DownloadState::Idle | crate::updates::DownloadState::Failed(_)
-@@ -11287,6 +11312,9 @@ impl App {
+@@ -11287,6 +11321,9 @@ impl App {
                  }
              }
              Action::InstallUpdate => {
@@ -3790,7 +3828,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
                  if matches!(
                      self.update_download,
                      crate::updates::DownloadState::Ready(_)
-@@ -12138,6 +12166,10 @@ impl App {
+@@ -12138,6 +12175,10 @@ impl App {
      /// Takes an automatic update step now, or holds it until the connection
      /// is neither metered nor down.
      fn take_update_step(&mut self, step: HeldUpdate) {
@@ -3801,7 +3839,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
          if self.downloads_wait() {
              self.held_update = Some(step);
              return;
-@@ -12375,9 +12407,11 @@ impl App {
+@@ -12375,9 +12416,11 @@ impl App {
      /// Keeps the current track in the window and taskbar title (#94).
      fn sync_window_title(&mut self, ctx: &egui::Context) {
          let title = match self.now_playing().filter(|now| now.playing) {
@@ -3815,7 +3853,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
          };
          if title != self.window_title {
              ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-@@ -12828,7 +12862,11 @@ pub fn engine_config(
+@@ -12828,7 +12871,11 @@ pub fn engine_config(
      EngineConfig {
          tap,
          eq,
@@ -3828,7 +3866,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
          bitrate_kbps: settings.bitrate,
          normalisation: settings.normalisation,
          autoplay: settings.autoplay,
-@@ -22261,6 +22299,33 @@ mod tests {
+@@ -22261,6 +22308,33 @@ mod tests {
          }
      }
  
@@ -3862,7 +3900,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
      /// An automatic download put off on a metered connection starts once the
      /// connection is not, rather than at the next daily check, and not while
      /// the connection is down: a download that fails would stop the next
-@@ -22309,10 +22374,13 @@ mod tests {
+@@ -22309,10 +22383,13 @@ mod tests {
  
          change_power(&app, |conditions| conditions.online = true);
          pass(&mut app);
@@ -3880,7 +3918,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
      }
  
      /// A step held while automatic downloads are off waits for them to be
-@@ -22340,20 +22408,27 @@ mod tests {
+@@ -22340,20 +22417,27 @@ mod tests {
              output.textures_delta.clear();
          };
          pass(&mut app);
@@ -3914,7 +3952,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
      }
  
      /// MPRIS hands the desktop the artwork URL and reads no file, so the
-@@ -23885,7 +23960,7 @@ mod tests {
+@@ -23885,7 +23969,7 @@ mod tests {
          assert_eq!(app.update, None);
          assert_eq!(
              app.toasts.last().map(|toast| toast.message.as_str()),
@@ -3923,7 +3961,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
          );
  
          app.toasts.clear();
-@@ -23934,7 +24009,7 @@ mod tests {
+@@ -23934,7 +24018,7 @@ mod tests {
          );
          assert_eq!(
              app.toasts.last().map(|toast| toast.message.as_str()),
@@ -3932,6 +3970,50 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..15109b85187f7d899c0ed610dae65099
          );
      }
  
+@@ -28681,6 +28765,34 @@ mod tests {
+         assert_eq!(playing(&app).as_deref(), Some("spotify:track:louder"));
+     }
+ 
++    /// Repeated explicit likes stay saved; an unknown Unlike never saves a song.
++    #[test]
++    fn explicit_library_commands_never_invert_a_repeated_like_or_an_unknown_unlike() {
++        let mut app = headless_app();
++        let uri = "spotify:track:canopy".to_owned();
++        let queue: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>> = Default::default();
++        app.control_commands = Some(queue.clone());
++        let ctx = egui::Context::default();
++        for saved in [true, true, false, false] {
++            queue.lock().unwrap().push(ControlCommand::SetSaved {
++                uri: uri.clone(),
++                saved,
++            });
++            app.handle_control_commands();
++            app.apply_actions(&ctx);
++            assert_eq!(app.is_saved(&uri), Some(saved));
++        }
++        let unknown = "spotify:track:unknown".to_owned();
++        assert_eq!(app.is_saved(&unknown), None);
++        queue.lock().unwrap().push(ControlCommand::SetSaved {
++            uri: unknown.clone(),
++            saved: false,
++        });
++        app.handle_control_commands();
++        app.apply_actions(&ctx);
++        assert_eq!(app.is_saved(&unknown), Some(false));
++    }
++
+     /// Control clients can set state, seek, play a URI, and transfer playback.
+     #[test]
+     fn a_key_can_ask_for_a_state_rather_than_a_toggle() {
+@@ -28777,6 +28889,8 @@ mod tests {
+                 // Local playback is this computer, which Spotify has not
+                 // named because it is not a remote device.
+                 "Spotifast",
++                // The Canopy CLI needs the exact identity; older fields stay put.
++                "spotify:track:t1",
+             ]
+         );
+         // No devices seen yet is an empty array, not an empty string, so a
 diff --git a/src/backend.rs b/src/backend.rs
 index 6e2c5309112433b88607a01658de2f76a7f0b785..a923d11e038d7e6d19d950eb68e298faa7a354dd 100644
 --- a/src/backend.rs
@@ -4033,10 +4115,21 @@ index a3b77916923f6cea3afe87b621b23020d2719f6c..2b6db2c653a501bac4dc9f82725d744e
                          }
                      }
 diff --git a/src/entrypoint.rs b/src/entrypoint.rs
-index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..57228b36041b1c7f3cbe2f57c4f9971e0ed60741 100644
+index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..68f419d19d5f7cc8fbb673671ff15e9e512bec4f 100644
 --- a/src/entrypoint.rs
 +++ b/src/entrypoint.rs
-@@ -490,6 +490,7 @@ pub(crate) fn run() -> eframe::Result<()> {
+@@ -348,6 +348,10 @@ fn format_devices(snapshot: &str) -> String {
+ }
+ 
+ pub(crate) fn run() -> eframe::Result<()> {
++    #[cfg(target_os = "macos")]
++    if let Some(status) = spotifast::spotify_compat::cli::run_if_cli(std::env::args_os()) {
++        std::process::exit(status);
++    }
+     // First of all: `--apply-update <job>` makes this process the update
+     // helper, which installs and exits; otherwise the receipt and error an
+     // update relaunch carries are taken out of the arguments.
+@@ -490,6 +494,7 @@ pub(crate) fn run() -> eframe::Result<()> {
      #[cfg(target_os = "macos")]
      if let Some(guard) = &instance {
          spotifast::mac_links::install(guard.commands(), waker.clone());
@@ -4044,7 +4137,7 @@ index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..57228b36041b1c7f3cbe2f57c4f9971e
      }
  
      // A capture run is a throwaway process next to the real one: no tray
-@@ -641,7 +642,7 @@ pub(crate) fn run() -> eframe::Result<()> {
+@@ -641,7 +646,7 @@ pub(crate) fn run() -> eframe::Result<()> {
          #[cfg(target_os = "linux")]
          let hide_from_taskbar = options.viewport.taskbar == Some(false);
          eframe::run_native(
@@ -4053,7 +4146,7 @@ index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..57228b36041b1c7f3cbe2f57c4f9971e
              options,
              Box::new(move |cc| {
                  if let Some(gl) = &cc.gl {
-@@ -862,7 +863,7 @@ fn native_options(
+@@ -862,7 +867,7 @@ fn native_options(
          app_icon()
      };
      let viewport = egui::ViewportBuilder::default()
@@ -4062,7 +4155,7 @@ index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..57228b36041b1c7f3cbe2f57c4f9971e
          .with_app_id(app_id)
          .with_taskbar(true)
          .with_icon(icon);
-@@ -1362,7 +1363,9 @@ impl Shell {
+@@ -1362,7 +1367,9 @@ impl Shell {
                  MenuCommand::Back => Action::Back,
                  MenuCommand::Forward => Action::Forward,
                  MenuCommand::OpenRepo => {
@@ -4134,6 +4227,92 @@ index f37f9f2e9a84001367571eb95c0260516ddf4724..5ec91f41d4d6311e05b40c8d6f52e6ea
              Some(sel!(openRepo:)),
              ns_string!(""),
              None,
+diff --git a/src/single_instance.rs b/src/single_instance.rs
+index 20f625bc903c50c8e99f4fb5b0029ea52665039d..6cb6ce99e7c531fae6610ac1d24008032897b75c 100644
+--- a/src/single_instance.rs
++++ b/src/single_instance.rs
+@@ -72,6 +72,11 @@ pub enum ControlCommand {
+     SeekTo(u32),
+     /// Save the playing track to the library, or take it back out.
+     ToggleSaved,
++    /// An explicit library intent, rather than an unreliable repeated toggle.
++    SetSaved {
++        uri: String,
++        saved: bool,
++    },
+     /// Play a `spotify:` URI: a track, album, playlist, artist, or show.
+     PlayUri(String),
+     /// Search Spotify for a track, album, artist, or playlist, and play the
+@@ -165,7 +170,7 @@ pub enum Reply {
+     Ok,
+     /// The `nowplaying` snapshot: [`NOTHING_PLAYING`], or tab-separated
+     /// `state, title, artists, album, position_ms, duration_ms, volume,
+-    /// shuffle, repeat, art_url, saved, device`.
++    /// shuffle, repeat, art_url, saved, device, uri`.
+     NowPlaying(String),
+     /// The `devices` snapshot: a JSON array of objects with `id`, `name`,
+     /// `kind`, and `active`, or [`NO_DEVICES`]. JSON safely carries free-text
+@@ -331,6 +336,18 @@ fn parse(line: &str) -> Option<Request> {
+             ControlCommand::SetRepeat(crate::player::RepeatMode::Track)
+         }
+         ("save-toggle", None) => ControlCommand::ToggleSaved,
++        ("save-set", Some(argument)) => {
++            let (state, uri) = argument.split_once(' ')?;
++            let saved = match state {
++                "on" => true,
++                "off" => false,
++                _ => return None,
++            };
++            ControlCommand::SetSaved {
++                uri: spotify_track_uri(uri)?,
++                saved,
++            }
++        }
+         ("play-uri", Some(uri)) => ControlCommand::PlayUri(spotify_uri(uri)?),
+         ("play-search", Some(argument)) => {
+             let (kind, query) = argument.split_once(' ')?;
+@@ -362,6 +379,12 @@ fn spotify_uri(text: &str) -> Option<String> {
+     shaped.then(|| text.to_owned())
+ }
+ 
++pub(crate) fn spotify_track_uri(text: &str) -> Option<String> {
++    let id = text.strip_prefix("spotify:track:")?;
++    (!id.is_empty() && id.len() <= 64 && id.bytes().all(|c| c.is_ascii_alphanumeric()))
++        .then(|| text.to_owned())
++}
++
+ /// Words to search for, checked like the other free-text arguments: not
+ /// empty, not long, and without control characters.
+ fn search_text(text: &str) -> Option<String> {
+@@ -394,6 +417,28 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn library_intents_are_explicit_and_validate_the_track_before_dispatch() {
++        for (state, saved) in [("on", true), ("off", false)] {
++            assert_eq!(
++                command(&format!("save-set {state} spotify:track:abc123")),
++                Some(ControlCommand::SetSaved {
++                    uri: "spotify:track:abc123".into(),
++                    saved
++                })
++            );
++        }
++        for request in [
++            "save-set maybe spotify:track:abc123",
++            "save-set on spotify:playlist:abc123",
++            "save-set off spotify:track:",
++            "save-set off spotify:track:abc123\nnext",
++            "save-set on spotify:track:abc123 extra",
++        ] {
++            assert_eq!(command(request), None, "{request}");
++        }
++    }
++
+     #[test]
+     fn parses_every_control_verb() {
+         // #given / #when / #then
 diff --git a/src/sink.rs b/src/sink.rs
 index e92a986b8063b68c721c017ce1b25e97b192ecef..9e8cbe6fc2a1296c45f19117c9995f5e09d56112 100644
 --- a/src/sink.rs
@@ -4149,16 +4328,19 @@ index e92a986b8063b68c721c017ce1b25e97b192ecef..9e8cbe6fc2a1296c45f19117c9995f5e
  }
 diff --git a/src/spotify_compat.rs b/src/spotify_compat.rs
 new file mode 100644
-index 0000000000000000000000000000000000000000..ec73bfab80a26f0301d5be97507ff6d00a192192
+index 0000000000000000000000000000000000000000..6efd5cc70aeab9839d3fbbd3ae85c5a33747bdb1
 --- /dev/null
 +++ b/src/spotify_compat.rs
-@@ -0,0 +1,162 @@
+@@ -0,0 +1,165 @@
 +//! Local Spotify Apple Events, handled inside the player process.
 +//!
 +//! The original profile, credential service and instance slot are unchanged.
 +//! No timers, child processes, network requests or extra artwork cache.
 +
 +use crate::single_instance::ControlCommand;
++
++#[cfg(any(target_os = "macos", test))]
++pub mod cli;
 +
 +pub const DISPLAY_NAME: &str = if cfg!(target_os = "macos") {
 +    "Spotify"
@@ -4313,6 +4495,272 @@ index 0000000000000000000000000000000000000000..ec73bfab80a26f0301d5be97507ff6d0
 +    fn updates_are_always_from_the_personal_channel() {
 +        assert_eq!(crate::updates::CONFIG.repository, UPDATE_REPOSITORY);
 +        assert_ne!(UPDATE_REPOSITORY, "crmne/spotifast");
++    }
++}
+diff --git a/src/spotify_compat/cli.rs b/src/spotify_compat/cli.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..fb7ba784bf5e6569dd5bf035cd688ec6915b0364
+--- /dev/null
++++ b/src/spotify_compat/cli.rs
+@@ -0,0 +1,260 @@
++//! The small subset of Spotify's bundled CLI that Canopy uses for its heart.
++//!
++//! `spotify_cli` is a relative link to the player executable. This entry point
++//! exits before starting a window, backend, account, or second player. It only
++//! talks to the existing per-user control channel.
++
++use std::ffi::OsString;
++use std::io::Write;
++use std::path::Path;
++use std::time::{Duration, Instant};
++
++use serde_json::{Value, json};
++
++use crate::single_instance::{self, Reply};
++
++#[derive(Debug, PartialEq)]
++enum Command {
++    NowPlaying,
++    Contains(String),
++    Save { uri: String, saved: bool },
++}
++
++fn parse(args: &[String]) -> Result<Command, &'static str> {
++    if args.len() > 12 || args.iter().any(|s| s.len() > 256) {
++        return Err("Too many or oversized CLI arguments.");
++    }
++    let mut positional = Vec::new();
++    let mut args = args.iter();
++    while let Some(argument) = args.next() {
++        if argument == "--format" {
++            if args.next().map(String::as_str) != Some("json") {
++                return Err("The personal Spotify CLI supports JSON output.");
++            }
++        } else if argument == "--format=json" {
++            continue;
++        } else {
++            positional.push(argument.as_str());
++        }
++    }
++    match positional.as_slice() {
++        ["now-playing"] => Ok(Command::NowPlaying),
++        ["library", verb, uri] => {
++            let uri = single_instance::spotify_track_uri(uri)
++                .ok_or("A canonical Spotify track URI is required.")?;
++            match *verb {
++                "contains" => Ok(Command::Contains(uri)),
++                "add" => Ok(Command::Save { uri, saved: true }),
++                "remove" => Ok(Command::Save { uri, saved: false }),
++                _ => Err("Unsupported library command."),
++            }
++        }
++        _ => {
++            Err("Supported: now-playing; library contains/add/remove <track URI> [--format json].")
++        }
++    }
++}
++
++#[derive(Debug)]
++struct Track {
++    uri: String,
++    title: String,
++    artist: String,
++    album: String,
++    position_ms: u32,
++    duration_ms: u32,
++    playing: bool,
++    saved: Option<bool>,
++}
++
++impl Track {
++    fn from_snapshot(snapshot: &str) -> Result<Option<Self>, &'static str> {
++        if snapshot == single_instance::NOTHING_PLAYING {
++            return Ok(None);
++        }
++        let fields: Vec<_> = snapshot.split('\t').collect();
++        if fields.len() < 13 {
++            return Err("Restart the updated Spotify app before using its CLI.");
++        }
++        Ok(Some(Self {
++            uri: single_instance::spotify_track_uri(fields[12])
++                .ok_or("The current item is not a Spotify track.")?,
++            title: fields[1].to_owned(),
++            artist: fields[2].to_owned(),
++            album: fields[3].to_owned(),
++            position_ms: fields[4].parse().map_err(|_| "Invalid player position.")?,
++            duration_ms: fields[5].parse().map_err(|_| "Invalid track duration.")?,
++            playing: fields[0] == "playing",
++            saved: match fields[10] {
++                "yes" => Some(true),
++                "no" => Some(false),
++                _ => None,
++            },
++        }))
++    }
++
++    fn contains(&self, uri: &str) -> Result<bool, &'static str> {
++        if self.uri != uri {
++            return Err("This compatibility CLI only exposes the current track.");
++        }
++        self.saved
++            .ok_or("The player's saved state is still loading.")
++    }
++
++    fn now_playing(&self) -> Value {
++        json!({
++            "currently_playing": {
++                "uri": self.uri,
++                "name": self.title,
++                "description": format!("{} - {}", self.title, self.artist),
++                "artists": [{"name": self.artist}],
++                "album": {"name": self.album},
++                "duration_ms": self.duration_ms,
++                "is_saved": self.saved,
++            },
++            "is_playing": self.playing,
++            "progress_ms": self.position_ms,
++        })
++    }
++}
++
++fn current() -> anyhow::Result<Option<Track>> {
++    let Reply::NowPlaying(snapshot) = single_instance::send("nowplaying")? else {
++        anyhow::bail!("The player did not return a track snapshot.");
++    };
++    Track::from_snapshot(&snapshot).map_err(anyhow::Error::msg)
++}
++
++fn execute(command: Command) -> anyhow::Result<Value> {
++    if command == Command::NowPlaying {
++        return Ok(current()?.map_or_else(
++            || json!({"currently_playing": null, "is_playing": false}),
++            |track| track.now_playing(),
++        ));
++    }
++    let track = current()?.ok_or_else(|| anyhow::anyhow!("No track is playing."))?;
++    match command {
++        Command::Contains(uri) => {
++            let saved = track.contains(&uri).map_err(anyhow::Error::msg)?;
++            Ok(json!({"contains": {uri: saved}}))
++        }
++        Command::Save { uri, saved } => {
++            if track.uri != uri {
++                anyhow::bail!("The current track changed. No library change was sent.");
++            }
++            if track.saved == Some(saved) {
++                return Ok(json!({"success": true}));
++            }
++            let state = if saved { "on" } else { "off" };
++            if !matches!(
++                single_instance::send(&format!("save-set {state} {uri}"))?,
++                Reply::Ok
++            ) {
++                anyhow::bail!("The player did not accept the library command.");
++            }
++            // A short command waits for the player's optimistic state. There is
++            // no polling service; this process exits after the explicit click.
++            let deadline = Instant::now() + Duration::from_secs(2);
++            while Instant::now() < deadline {
++                if let Some(track) = current()?
++                    && track.uri == uri
++                    && track.saved == Some(saved)
++                {
++                    return Ok(json!({"success": true}));
++                }
++                std::thread::sleep(Duration::from_millis(20));
++            }
++            anyhow::bail!("The player has not reflected the library command yet.");
++        }
++        Command::NowPlaying => unreachable!(),
++    }
++}
++
++/// `None` leaves an ordinary player or Spotifast control launch unchanged.
++pub fn run_if_cli(arguments: impl IntoIterator<Item = OsString>) -> Option<i32> {
++    let mut arguments = arguments.into_iter();
++    let program = arguments.next()?;
++    if Path::new(&program).file_name()? != "spotify_cli" {
++        return None;
++    }
++    let result = arguments
++        .map(|arg| {
++            arg.into_string()
++                .map_err(|_| anyhow::anyhow!("Arguments must be UTF-8."))
++        })
++        .collect::<anyhow::Result<Vec<_>>>()
++        .and_then(|args| parse(&args).map_err(anyhow::Error::msg))
++        .and_then(execute);
++    Some(match result {
++        Ok(value) => i32::from(writeln!(std::io::stdout().lock(), "{value}").is_err()),
++        Err(error) => {
++            let _ = writeln!(
++                std::io::stderr().lock(),
++                "Spotify compatibility CLI: {error}"
++            );
++            1
++        }
++    })
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    fn args(values: &[&str]) -> Vec<String> {
++        values.iter().map(|value| (*value).to_owned()).collect()
++    }
++
++    #[test]
++    fn canopy_commands_accept_json_flags_and_reject_unrelated_or_injected_requests() {
++        assert_eq!(
++            parse(&args(&["--format", "json", "now-playing"])),
++            Ok(Command::NowPlaying)
++        );
++        assert_eq!(
++            parse(&args(&[
++                "library",
++                "contains",
++                "spotify:track:abc",
++                "--format=json"
++            ])),
++            Ok(Command::Contains("spotify:track:abc".into()))
++        );
++        for verb in ["add", "remove"] {
++            assert_eq!(
++                parse(&args(&["library", verb, "spotify:track:abc"])),
++                Ok(Command::Save {
++                    uri: "spotify:track:abc".into(),
++                    saved: verb == "add"
++                })
++            );
++        }
++        for request in [
++            vec!["library", "add", "spotify:track:abc\nnext"],
++            vec!["library", "remove", "spotify:playlist:abc"],
++            vec!["library", "batch"],
++            vec!["now-playing", "--format", "xml"],
++        ] {
++            assert!(parse(&args(&request)).is_err());
++        }
++        assert_eq!(run_if_cli([OsString::from("Spotify")]), None);
++    }
++
++    #[test]
++    fn unknown_or_stale_likes_are_not_reported_as_false() {
++        let snapshot = "paused\tTitle\tArtist\tAlbum\t12000\t200000\t35\toff\toff\t\tunknown\tSpotify\tspotify:track:abc";
++        let track = Track::from_snapshot(snapshot).unwrap().unwrap();
++        assert!(track.contains("spotify:track:abc").is_err());
++        assert!(track.contains("spotify:track:other").is_err());
++        assert_eq!(
++            track.now_playing()["currently_playing"]["uri"],
++            "spotify:track:abc"
++        );
++        assert!(Track::from_snapshot("playing\told snapshot").is_err());
++        assert!(Track::from_snapshot("stopped").unwrap().is_none());
++        let liked = Track::from_snapshot(&snapshot.replace("unknown", "yes"))
++            .unwrap()
++            .unwrap();
++        assert_eq!(liked.contains("spotify:track:abc"), Ok(true));
 +    }
 +}
 diff --git a/src/spotify_compat/native.rs b/src/spotify_compat/native.rs
@@ -4877,7 +5325,7 @@ index 7bc12123452065e51682ba8be8c52e05eea08066..2aa30b91e16180d417f52779d4f6f26a
          assert!(x64.text.contains("OpenGL 2.0"));
          assert!(x64.text.contains("virtual machine"));
 diff --git a/tests/packaging_macos.rs b/tests/packaging_macos.rs
-index d475d2ff1bb3f0887bd23046fdbed4f0ef11633c..9bcc2653710c352a2461c9f58e38edc780ddcb3c 100644
+index d475d2ff1bb3f0887bd23046fdbed4f0ef11633c..c131da442b384d2cff3b48bbce62139a9283e278 100644
 --- a/tests/packaging_macos.rs
 +++ b/tests/packaging_macos.rs
 @@ -16,7 +16,7 @@ fn packaging(file: &str) -> String {
@@ -4889,3 +5337,14 @@ index d475d2ff1bb3f0887bd23046fdbed4f0ef11633c..9bcc2653710c352a2461c9f58e38edc7
      assert_eq!(
          packaging("autostart.plist"),
          fastframe_autostart::macos_agent_plist(id, fastframe_autostart::START_HIDDEN),
+@@ -32,3 +32,10 @@ fn the_bundle_carries_the_agent_that_starts_in_the_tray() {
+         fastframe_autostart::macos_agent_plist_name(id)
+     );
+ }
++
++#[test]
++fn canopys_cli_is_an_entry_point_of_the_same_executable() {
++    assert!(
++        packaging("bundle.sh").contains(r#"ln -s "$executable" "$app/Contents/MacOS/spotify_cli""#)
++    );
++}

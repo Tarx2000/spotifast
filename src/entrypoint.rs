@@ -348,6 +348,10 @@ fn format_devices(snapshot: &str) -> String {
 }
 
 pub(crate) fn run() -> eframe::Result<()> {
+    #[cfg(target_os = "macos")]
+    if let Some(status) = spotifast::spotify_compat::cli::run_if_cli(std::env::args_os()) {
+        std::process::exit(status);
+    }
     // First of all: `--apply-update <job>` makes this process the update
     // helper, which installs and exits; otherwise the receipt and error an
     // update relaunch carries are taken out of the arguments.

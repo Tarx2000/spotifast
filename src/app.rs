@@ -4374,6 +4374,14 @@ impl App {
                 ControlCommand::ToggleSaved => {
                     self.now_playing().map(|now| Action::ToggleSaved(now.uri))
                 }
+                ControlCommand::SetSaved { uri, saved } => Some(Action::SetSavedMany {
+                    uris: if saved {
+                        vec![uri]
+                    } else {
+                        self.saved_toggle_targets(&uri)
+                    },
+                    saved,
+                }),
                 ControlCommand::PlayUri(uri) => Some(Action::PlayContext {
                     uri,
                     offset_uri: None,
@@ -4597,7 +4605,7 @@ impl App {
 
     /// One line for the control channel's `nowplaying` verb: tab-separated
     /// `state, title, artists, album, position_ms, duration_ms, volume,
-    /// shuffle, repeat, art_url, saved, device`, or
+    /// shuffle, repeat, art_url, saved, device, uri`, or
     /// [`crate::single_instance::NOTHING_PLAYING`].
     ///
     /// The last three are what a Stream Deck key needs and a media key does
@@ -4634,7 +4642,7 @@ impl App {
             }
         }
         format!(
-            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{saved}\t{}",
+            "{state}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{saved}\t{}\t{}",
             clean(&now.title),
             clean(&now.subtitle),
             clean(&now.album_name),
@@ -4645,6 +4653,7 @@ impl App {
             now.repeat.api_name(),
             clean(now.art_url.as_deref().unwrap_or_default()),
             clean(device),
+            clean(&now.uri),
         )
     }
 
@@ -28756,6 +28765,34 @@ mod tests {
         assert_eq!(playing(&app).as_deref(), Some("spotify:track:louder"));
     }
 
+    /// Repeated explicit likes stay saved; an unknown Unlike never saves a song.
+    #[test]
+    fn explicit_library_commands_never_invert_a_repeated_like_or_an_unknown_unlike() {
+        let mut app = headless_app();
+        let uri = "spotify:track:canopy".to_owned();
+        let queue: std::sync::Arc<std::sync::Mutex<Vec<ControlCommand>>> = Default::default();
+        app.control_commands = Some(queue.clone());
+        let ctx = egui::Context::default();
+        for saved in [true, true, false, false] {
+            queue.lock().unwrap().push(ControlCommand::SetSaved {
+                uri: uri.clone(),
+                saved,
+            });
+            app.handle_control_commands();
+            app.apply_actions(&ctx);
+            assert_eq!(app.is_saved(&uri), Some(saved));
+        }
+        let unknown = "spotify:track:unknown".to_owned();
+        assert_eq!(app.is_saved(&unknown), None);
+        queue.lock().unwrap().push(ControlCommand::SetSaved {
+            uri: unknown.clone(),
+            saved: false,
+        });
+        app.handle_control_commands();
+        app.apply_actions(&ctx);
+        assert_eq!(app.is_saved(&unknown), Some(false));
+    }
+
     /// Control clients can set state, seek, play a URI, and transfer playback.
     #[test]
     fn a_key_can_ask_for_a_state_rather_than_a_toggle() {
@@ -28852,6 +28889,8 @@ mod tests {
                 // Local playback is this computer, which Spotify has not
                 // named because it is not a remote device.
                 "Spotifast",
+                // The Canopy CLI needs the exact identity; older fields stay put.
+                "spotify:track:t1",
             ]
         );
         // No devices seen yet is an empty array, not an empty string, so a

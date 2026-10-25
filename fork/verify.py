@@ -24,6 +24,13 @@ def verify(root: Path):
     assert 'fork/update-public-key.hex' in updates
     assert 'spotify_compat::install(guard.commands()' in entrypoint
     assert 'spotify_compat::update(self.spotify_snapshot())' in app
+    assert entrypoint.index('spotify_compat::cli::run_if_cli') < entrypoint.index('fastframe_update::intercept')
+    assert 'ControlCommand::SetSaved' in app and 'Action::SetSavedMany' in app
+    cli = (root/'src/spotify_compat/cli.rs').read_text()
+    assert 'single_instance::send' in cli and 'save-set' in cli
+    for forbidden in ['reqwest', 'Command::new', 'NSApplication', 'credentials::']:
+        assert forbidden not in cli, f'Unexpected CLI work: {forbidden}'
+    assert "(contents/'MacOS/spotify_cli').symlink_to('Spotify')" in (root/'fork/package.py').read_text()
     assert 'Track ID' in native and 'PlaybackStateChanged' in native
     assert 'now.uri' in app and 'pTrk' in compat
     for forbidden in ['std::process', 'Command::new', 'Timer::', 'reqwest', 'URLSession']:

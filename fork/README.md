@@ -42,7 +42,8 @@ Solche Konflikte müssen gelegentlich angepasst werden; dies ist kein
 Wartungsfreiheitsversprechen für beliebige zukünftige Originaländerungen.
 
 Die Versionsnummer enthält eine eigene Revision: Aus Original `0.14.1` und
-persönlicher Revision `1` wird `0.14.1001`. Aus `0.14.2` wird `0.14.2001`.
+persönlicher Revision `1` wird `0.14.1001`. Bei Revision `1` wird aus
+`0.14.2` entsprechend `0.14.2001`; mit Revision `2` lautet sie `0.14.2002`.
 Eine weitere eigene Änderung auf derselben Originalversion erhöht `revision`
 in `config.json`. Das verhindert, dass der Updatevergleich eine eigene
 Korrektur übersieht. `upstream.json` nennt Originalversion, Commit und den
@@ -74,6 +75,22 @@ Bedienelemente. Die aktuelle Track-ID ist verfügbar. Titelwiedergabe mit einem
 zusätzlichen AppleScript-Kontext wird ausdrücklich als nicht unterstützt
 beantwortet. Apps mit weiteren proprietären Schnittstellen oder einer Prüfung
 von Spotifys echter Signatur können den Fork weiterhin unterscheiden.
+
+Canopys Herz verwendet zusätzlich Spotifys lokale `spotify_cli`-Schnittstelle.
+Das Paket enthält dafür einen relativen Link auf dasselbe Player-Programm.
+Ein solcher Aufruf startet keine Oberfläche, keinen zweiten Player und keinen
+Hintergrunddienst. Er liest den vorhandenen lokalen Steuerkanal und beendet
+sich nach der Anfrage. Es wird kein weiteres Konto und kein weiterer Token
+eingerichtet. Unterstützt sind `now-playing` sowie `library contains`,
+`library add` und `library remove` für den aktuellen Song, mit JSON-Ausgabe.
+Andere Befehle werden ausdrücklich abgewiesen. Unbekannter Like-Status wird
+als noch nicht verfügbar behandelt. Add/Remove setzen einen Zustand, sodass
+ein wiederholtes Like den Song nicht versehentlich wieder entfernt.
+
+Nach dem ersten Wechsel der App-Kennung sollten Player und Canopy neu
+gestartet werden. Falls Canopys Spotify-Steuerung trotz eingeschalteter
+Automationsfreigabe nicht reagiert, kann die bereits vorhandene Spotify-
+Freigabe unter Canopy einmal aus- und wieder eingeschaltet werden.
 
 ## Entwicklung und Wiederaufbau
 

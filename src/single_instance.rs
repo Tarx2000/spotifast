@@ -72,6 +72,11 @@ pub enum ControlCommand {
     SeekTo(u32),
     /// Save the playing track to the library, or take it back out.
     ToggleSaved,
+    /// An explicit library intent, rather than an unreliable repeated toggle.
+    SetSaved {
+        uri: String,
+        saved: bool,
+    },
     /// Play a `spotify:` URI: a track, album, playlist, artist, or show.
     PlayUri(String),
     /// Search Spotify for a track, album, artist, or playlist, and play the
@@ -165,7 +170,7 @@ pub enum Reply {
     Ok,
     /// The `nowplaying` snapshot: [`NOTHING_PLAYING`], or tab-separated
     /// `state, title, artists, album, position_ms, duration_ms, volume,
-    /// shuffle, repeat, art_url, saved, device`.
+    /// shuffle, repeat, art_url, saved, device, uri`.
     NowPlaying(String),
     /// The `devices` snapshot: a JSON array of objects with `id`, `name`,
     /// `kind`, and `active`, or [`NO_DEVICES`]. JSON safely carries free-text
@@ -331,6 +336,18 @@ fn parse(line: &str) -> Option<Request> {
             ControlCommand::SetRepeat(crate::player::RepeatMode::Track)
         }
         ("save-toggle", None) => ControlCommand::ToggleSaved,
+        ("save-set", Some(argument)) => {
+            let (state, uri) = argument.split_once(' ')?;
+            let saved = match state {
+                "on" => true,
+                "off" => false,
+                _ => return None,
+            };
+            ControlCommand::SetSaved {
+                uri: spotify_track_uri(uri)?,
+                saved,
+            }
+        }
         ("play-uri", Some(uri)) => ControlCommand::PlayUri(spotify_uri(uri)?),
         ("play-search", Some(argument)) => {
             let (kind, query) = argument.split_once(' ')?;
@@ -362,6 +379,12 @@ fn spotify_uri(text: &str) -> Option<String> {
     shaped.then(|| text.to_owned())
 }
 
+pub(crate) fn spotify_track_uri(text: &str) -> Option<String> {
+    let id = text.strip_prefix("spotify:track:")?;
+    (!id.is_empty() && id.len() <= 64 && id.bytes().all(|c| c.is_ascii_alphanumeric()))
+        .then(|| text.to_owned())
+}
+
 /// Words to search for, checked like the other free-text arguments: not
 /// empty, not long, and without control characters.
 fn search_text(text: &str) -> Option<String> {
@@ -391,6 +414,28 @@ mod tests {
         match parse(line) {
             Some(Request::Command(command)) => Some(command),
             _ => None,
+        }
+    }
+
+    #[test]
+    fn library_intents_are_explicit_and_validate_the_track_before_dispatch() {
+        for (state, saved) in [("on", true), ("off", false)] {
+            assert_eq!(
+                command(&format!("save-set {state} spotify:track:abc123")),
+                Some(ControlCommand::SetSaved {
+                    uri: "spotify:track:abc123".into(),
+                    saved
+                })
+            );
+        }
+        for request in [
+            "save-set maybe spotify:track:abc123",
+            "save-set on spotify:playlist:abc123",
+            "save-set off spotify:track:",
+            "save-set off spotify:track:abc123\nnext",
+            "save-set on spotify:track:abc123 extra",
+        ] {
+            assert_eq!(command(request), None, "{request}");
         }
     }
 

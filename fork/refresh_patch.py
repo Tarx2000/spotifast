@@ -9,7 +9,7 @@ root = Path(__file__).resolve().parent.parent
 config = json.loads((root/'fork/config.json').read_text())
 paths = [
     'examples/spotify-event-fixture.rs', 'Cargo.toml', 'src/lib.rs', 'src/spotify_compat.rs', 'src/spotify_compat',
-    'src/updates.rs', 'src/entrypoint.rs', 'src/app.rs', 'src/backend.rs',
+    'src/updates.rs', 'src/entrypoint.rs', 'src/app.rs', 'src/backend.rs', 'src/single_instance.rs',
     'src/window.rs', 'src/demo.rs', 'src/i18n.rs', 'src/mac_menu.rs', 'src/sink.rs', 'src/ui/login.rs',
     'src/ui/settings.rs', 'src/ui/update.rs', 'packaging/macos/Info.plist',
     'packaging/macos/autostart.plist', 'packaging/macos/bundle.sh',

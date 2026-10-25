@@ -23,6 +23,7 @@ identifier=com.spotify.client
 cp "$binary" "$app/Contents/MacOS/$executable"
 cp "$here/Spotify.sdef" "$app/Contents/Resources/Spotify.sdef"
 chmod 755 "$app/Contents/MacOS/$executable"
+ln -s "$executable" "$app/Contents/MacOS/spotify_cli"
 # The build number has to be numbers: a release candidate's -rc1 comes off.
 build="${version%%-*}"
 sed -e "s/__VERSION__/$version/g" -e "s/__BUILD__/$build/g" \

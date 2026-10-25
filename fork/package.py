@@ -27,6 +27,7 @@ def package(binary, output, dmg):
     resources.mkdir()
     shutil.copy2(binary, contents/'MacOS/Spotify')
     (contents/'MacOS/Spotify').chmod(0o755)
+    (contents/'MacOS/spotify_cli').symlink_to('Spotify')
     template = (root/'packaging/macos/Info.plist').read_text()
     for key, value in {'__VERSION__': version, '__BUILD__': version,
                        '__EXECUTABLE__': 'Spotify', '__IDENTIFIER__': 'com.spotify.client'}.items():
@@ -52,6 +53,8 @@ def package(binary, output, dmg):
     info = plistlib.loads((contents/'Info.plist').read_bytes())
     assert info['CFBundleIdentifier'] == 'com.spotify.client'
     assert info['CFBundleName'] == 'Spotify'
+    assert (contents/'MacOS/spotify_cli').is_symlink()
+    assert (contents/'MacOS/spotify_cli').resolve() == (contents/'MacOS/Spotify').resolve()
     archive = output/f'spotifast-v{version}-macos-arm64.zip'
     subprocess.run(['ditto', '-c', '-k', '--keepParent', str(app), str(archive)], check=True)
     packages = [archive]

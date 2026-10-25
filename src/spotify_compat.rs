@@ -5,6 +5,9 @@
 
 use crate::single_instance::ControlCommand;
 
+#[cfg(any(target_os = "macos", test))]
+pub mod cli;
+
 pub const DISPLAY_NAME: &str = if cfg!(target_os = "macos") {
     "Spotify"
 } else {

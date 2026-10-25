@@ -32,3 +32,10 @@ fn the_bundle_carries_the_agent_that_starts_in_the_tray() {
         fastframe_autostart::macos_agent_plist_name(id)
     );
 }
+
+#[test]
+fn canopys_cli_is_an_entry_point_of_the_same_executable() {
+    assert!(
+        packaging("bundle.sh").contains(r#"ln -s "$executable" "$app/Contents/MacOS/spotify_cli""#)
+    );
+}
