@@ -5103,6 +5103,19 @@ index 0000000000000000000000000000000000000000..91721d8fb661db0cf9302f2ead2cbd8e
 +    }
 +    *guard = Some(state);
 +}
+diff --git a/src/ui/login.rs b/src/ui/login.rs
+index 27269116fdef99c7e37af395ffdcd80c38ce91e8..ba96e73132ab10933cebb36d6cce4fcb8bc4e4f6 100644
+--- a/src/ui/login.rs
++++ b/src/ui/login.rs
+@@ -209,7 +209,7 @@ fn sign_in_column(app: &mut App, ui: &mut egui::Ui, connecting: bool, beside: Op
+     ui.add_space(6.0);
+     theme::text(
+         ui,
+-        "Spotifast",
++        crate::spotify_compat::DISPLAY_NAME,
+         theme::bold(if steps { 26.0 } else { 30.0 }),
+         palette.text,
+     );
 diff --git a/src/ui/settings.rs b/src/ui/settings.rs
 index 1b9d7cf1736fbff63738eb85127767582074828e..238a94543687863c3b70adf9e1c6a25bbafb9bf7 100644
 --- a/src/ui/settings.rs
