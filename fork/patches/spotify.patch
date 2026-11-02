@@ -1,8 +1,8 @@
 diff --git a/Cargo.toml b/Cargo.toml
-index 9e785bc198e5843c835f6da34e7c1400e1dc5c56..80814d2722bf5afa0c92340710dbe63a89ff8989 100644
+index 048534866f557dafd8f50c4b5ad7af6ce1233661..a9e3ef7f79ddb11ec4d0aa2ac0edbc56daf4d4e0 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -199,7 +199,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std",
+@@ -221,7 +221,12 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["std",
  # macOS hands an app registered for the scheme (src/mac_links.rs), and
  # NSRunLoop has the delayed perform that minimizes the window
  # (src/window.rs).
@@ -83,7 +83,7 @@ index 0000000000000000000000000000000000000000..0cef0931fd65f6e1caa5a8c0f79d39d2
 +#[cfg(not(target_os = "macos"))]
 +fn main() {}
 diff --git a/packaging/macos/Info.plist b/packaging/macos/Info.plist
-index e782bebeea91f23091995fb5edef20cd136b50cf..66beba86e2e315eaeb57dabf485468b314460152 100644
+index c102bab202aa6cdbfd3397cf241770d0e32fbd74..c2ee08a437521e90e051f659d95122b364b1c891 100644
 --- a/packaging/macos/Info.plist
 +++ b/packaging/macos/Info.plist
 @@ -2,10 +2,12 @@
@@ -3715,10 +3715,10 @@ z2`*?lR!0r!D^by``G<`#L=sw61aHl^4a|&SQo?~H{{QoTvjEO!UuKP@HOtEgT;!}|
 NZfbdfVB&u7zW~wMffxV)
 
 diff --git a/src/app.rs b/src/app.rs
-index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce6440a31de0 100644
+index 50eacfdafb3004f4b30ad6c8b2d51859425ff1f8..5220eb66364cf49afe602ae23c687de273bf3af6 100644
 --- a/src/app.rs
 +++ b/src/app.rs
-@@ -776,7 +776,7 @@ const RECENTS_PAGE: u32 = 50;
+@@ -867,7 +867,7 @@ const RECENTS_PAGE: u32 = 50;
  /// Who the desktop's media controls belong to. Links to Spotify, as
  /// `spotify:` URIs or web addresses, are what they may ask Spotifast to open.
  fn media_app() -> fastframe_now_playing::App {
@@ -3727,7 +3727,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
      app.uri_schemes = vec!["spotify".into(), "https".into(), "http".into()];
      app
  }
-@@ -889,7 +889,7 @@ fn tray_config() -> fastframe_tray::Config {
+@@ -989,7 +989,7 @@ fn tray_config() -> fastframe_tray::Config {
      use fastframe_tray::MenuItem;
      fastframe_tray::Config {
          id: "spotifast",
@@ -3736,7 +3736,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          icon: util::app_icon_rgba,
          template_icon: Some(util::tray_template_rgba),
          themed_icon: true,
-@@ -4374,6 +4374,14 @@ impl App {
+@@ -4891,6 +4891,14 @@ impl App {
                  ControlCommand::ToggleSaved => {
                      self.now_playing().map(|now| Action::ToggleSaved(now.uri))
                  }
@@ -3751,7 +3751,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
                  ControlCommand::PlayUri(uri) => Some(Action::PlayContext {
                      uri,
                      offset_uri: None,
-@@ -4544,6 +4552,8 @@ impl App {
+@@ -5067,6 +5075,8 @@ impl App {
                  ..MediaState::default()
              },
          };
@@ -3760,7 +3760,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          if let Some(controls) = &mut self.media_controls {
              controls.update(state);
          }
-@@ -4573,9 +4583,29 @@ impl App {
+@@ -5096,9 +5106,29 @@ impl App {
          }
      }
  
@@ -3791,7 +3791,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
      /// [`crate::single_instance::NOTHING_PLAYING`].
      ///
      /// The last three are what a Stream Deck key needs and a media key does
-@@ -4612,7 +4642,7 @@ impl App {
+@@ -5135,7 +5165,7 @@ impl App {
              }
          }
          format!(
@@ -3800,7 +3800,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
              clean(&now.title),
              clean(&now.subtitle),
              clean(&now.album_name),
-@@ -4623,6 +4653,7 @@ impl App {
+@@ -5146,6 +5176,7 @@ impl App {
              now.repeat.api_name(),
              clean(now.art_url.as_deref().unwrap_or_default()),
              clean(device),
@@ -3808,7 +3808,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          )
      }
  
-@@ -11271,6 +11302,9 @@ impl App {
+@@ -12496,6 +12527,9 @@ impl App {
                  }
              }
              Action::DownloadUpdate => {
@@ -3818,7 +3818,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
                  if matches!(
                      self.update_download,
                      crate::updates::DownloadState::Idle | crate::updates::DownloadState::Failed(_)
-@@ -11287,6 +11321,9 @@ impl App {
+@@ -12512,6 +12546,9 @@ impl App {
                  }
              }
              Action::InstallUpdate => {
@@ -3828,7 +3828,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
                  if matches!(
                      self.update_download,
                      crate::updates::DownloadState::Ready(_)
-@@ -12138,6 +12175,10 @@ impl App {
+@@ -13474,6 +13511,10 @@ impl App {
      /// Takes an automatic update step now, or holds it until the connection
      /// is neither metered nor down.
      fn take_update_step(&mut self, step: HeldUpdate) {
@@ -3839,7 +3839,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          if self.downloads_wait() {
              self.held_update = Some(step);
              return;
-@@ -12375,9 +12416,11 @@ impl App {
+@@ -13717,9 +13758,11 @@ impl App {
      /// Keeps the current track in the window and taskbar title (#94).
      fn sync_window_title(&mut self, ctx: &egui::Context) {
          let title = match self.now_playing().filter(|now| now.playing) {
@@ -3853,7 +3853,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          };
          if title != self.window_title {
              ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-@@ -12828,7 +12871,11 @@ pub fn engine_config(
+@@ -14192,7 +14235,11 @@ pub fn engine_config(
      EngineConfig {
          tap,
          eq,
@@ -3866,7 +3866,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          bitrate_kbps: settings.bitrate,
          normalisation: settings.normalisation,
          autoplay: settings.autoplay,
-@@ -22261,6 +22308,33 @@ mod tests {
+@@ -25130,6 +25177,33 @@ mod tests {
          }
      }
  
@@ -3900,7 +3900,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
      /// An automatic download put off on a metered connection starts once the
      /// connection is not, rather than at the next daily check, and not while
      /// the connection is down: a download that fails would stop the next
-@@ -22309,10 +22383,13 @@ mod tests {
+@@ -25178,10 +25252,13 @@ mod tests {
  
          change_power(&app, |conditions| conditions.online = true);
          pass(&mut app);
@@ -3918,7 +3918,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
      }
  
      /// A step held while automatic downloads are off waits for them to be
-@@ -22340,20 +22417,27 @@ mod tests {
+@@ -25209,20 +25286,27 @@ mod tests {
              output.textures_delta.clear();
          };
          pass(&mut app);
@@ -3952,7 +3952,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
      }
  
      /// MPRIS hands the desktop the artwork URL and reads no file, so the
-@@ -23885,7 +23969,7 @@ mod tests {
+@@ -27119,7 +27203,7 @@ mod tests {
          assert_eq!(app.update, None);
          assert_eq!(
              app.toasts.last().map(|toast| toast.message.as_str()),
@@ -3961,7 +3961,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          );
  
          app.toasts.clear();
-@@ -23934,7 +24018,7 @@ mod tests {
+@@ -27168,7 +27252,7 @@ mod tests {
          );
          assert_eq!(
              app.toasts.last().map(|toast| toast.message.as_str()),
@@ -3970,7 +3970,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          );
      }
  
-@@ -28681,6 +28765,34 @@ mod tests {
+@@ -32725,6 +32809,34 @@ mod tests {
          assert_eq!(playing(&app).as_deref(), Some("spotify:track:louder"));
      }
  
@@ -4005,7 +4005,7 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
      /// Control clients can set state, seek, play a URI, and transfer playback.
      #[test]
      fn a_key_can_ask_for_a_state_rather_than_a_toggle() {
-@@ -28777,6 +28889,8 @@ mod tests {
+@@ -32821,6 +32933,8 @@ mod tests {
                  // Local playback is this computer, which Spotify has not
                  // named because it is not a remote device.
                  "Spotifast",
@@ -4015,10 +4015,10 @@ index e3f93e492571f3a6b0af9765b81e94b6dc75aafe..70f079a480c86a4282dd688352b0ce64
          );
          // No devices seen yet is an empty array, not an empty string, so a
 diff --git a/src/backend.rs b/src/backend.rs
-index 6e2c5309112433b88607a01658de2f76a7f0b785..a923d11e038d7e6d19d950eb68e298faa7a354dd 100644
+index 700e50363b60df05185fb8e948b78c9d833e19ef..4377b54bd84f918ed3f37996dcda57848eff97e0 100644
 --- a/src/backend.rs
 +++ b/src/backend.rs
-@@ -2484,6 +2484,13 @@ impl Worker {
+@@ -2680,6 +2680,13 @@ impl Worker {
                      self.check_for_updates(manual, source)
                  }
                  Command::InspectUpdate => {
@@ -4032,7 +4032,7 @@ index 6e2c5309112433b88607a01658de2f76a7f0b785..a923d11e038d7e6d19d950eb68e298fa
                      let proxy = self.engine_config.proxy.clone();
                      let events = self.events.clone();
                      let waker = self.waker.clone();
-@@ -2498,6 +2505,13 @@ impl Worker {
+@@ -2694,6 +2701,13 @@ impl Worker {
                      });
                  }
                  Command::DownloadUpdate { release, source } => {
@@ -4046,7 +4046,7 @@ index 6e2c5309112433b88607a01658de2f76a7f0b785..a923d11e038d7e6d19d950eb68e298fa
                      let proxy = self.engine_config.proxy.clone();
                      let events = self.events.clone();
                      let waker = self.waker.clone();
-@@ -2522,6 +2536,13 @@ impl Worker {
+@@ -2718,6 +2732,13 @@ impl Worker {
                      prepared,
                      arguments,
                  } => {
@@ -4061,10 +4061,10 @@ index 6e2c5309112433b88607a01658de2f76a7f0b785..a923d11e038d7e6d19d950eb68e298fa
                      let events = self.events.clone();
                      let waker = self.waker.clone();
 diff --git a/src/demo.rs b/src/demo.rs
-index a3b77916923f6cea3afe87b621b23020d2719f6c..2b6db2c653a501bac4dc9f82725d744e34c905fa 100644
+index e4c950569583be38b4137127a557c2e5f415b0cd..97bdea9c4b2ab80ed563be7ca8165b8b5b53c921 100644
 --- a/src/demo.rs
 +++ b/src/demo.rs
-@@ -3255,6 +3255,20 @@ mod tests {
+@@ -3850,6 +3850,20 @@ mod tests {
          // widgets it has not shown out of the screen-reader tree.
          accessible_frame(&ctx, &mut app, vec![]);
          let tree = accessible_frame(&ctx, &mut app, vec![]);
@@ -4085,7 +4085,7 @@ index a3b77916923f6cea3afe87b621b23020d2719f6c..2b6db2c653a501bac4dc9f82725d744e
          let download = accessible_node(&tree, "Download update", Role::Button);
          accessible_frame(
              &ctx,
-@@ -3577,11 +3591,14 @@ mod tests {
+@@ -4275,11 +4289,14 @@ mod tests {
                  "Download updates automatically",
              ),
          ] {
@@ -4105,7 +4105,7 @@ index a3b77916923f6cea3afe87b621b23020d2719f6c..2b6db2c653a501bac4dc9f82725d744e
              let text = settings_text(&ctx, &mut app, query);
              assert!(text.iter().any(|text| text == row), "{query}: {text:?}");
          }
-@@ -6619,7 +6636,7 @@ mod tests {
+@@ -7642,7 +7659,7 @@ mod tests {
                              "{:?} is cut off at {size:?} in {state:?}",
                              text.galley.job.text
                          );
@@ -4115,10 +4115,10 @@ index a3b77916923f6cea3afe87b621b23020d2719f6c..2b6db2c653a501bac4dc9f82725d744e
                          }
                      }
 diff --git a/src/entrypoint.rs b/src/entrypoint.rs
-index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..68f419d19d5f7cc8fbb673671ff15e9e512bec4f 100644
+index c05d287ed658480b51ca540ee697b5841146b164..496e563ea5a49634e14df6bc2e538bf794aa0ef4 100644
 --- a/src/entrypoint.rs
 +++ b/src/entrypoint.rs
-@@ -348,6 +348,10 @@ fn format_devices(snapshot: &str) -> String {
+@@ -350,6 +350,10 @@ fn format_devices(snapshot: &str) -> String {
  }
  
  pub(crate) fn run() -> eframe::Result<()> {
@@ -4129,7 +4129,7 @@ index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..68f419d19d5f7cc8fbb673671ff15e9e
      // First of all: `--apply-update <job>` makes this process the update
      // helper, which installs and exits; otherwise the receipt and error an
      // update relaunch carries are taken out of the arguments.
-@@ -490,6 +494,7 @@ pub(crate) fn run() -> eframe::Result<()> {
+@@ -493,6 +497,7 @@ pub(crate) fn run() -> eframe::Result<()> {
      #[cfg(target_os = "macos")]
      if let Some(guard) = &instance {
          spotifast::mac_links::install(guard.commands(), waker.clone());
@@ -4137,16 +4137,16 @@ index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..68f419d19d5f7cc8fbb673671ff15e9e
      }
  
      // A capture run is a throwaway process next to the real one: no tray
-@@ -641,7 +646,7 @@ pub(crate) fn run() -> eframe::Result<()> {
-         #[cfg(target_os = "linux")]
-         let hide_from_taskbar = options.viewport.taskbar == Some(false);
-         eframe::run_native(
--            "Spotifast",
-+            spotifast::spotify_compat::DISPLAY_NAME,
-             options,
-             Box::new(move |cc| {
-                 if let Some(gl) = &cc.gl {
-@@ -862,7 +867,7 @@ fn native_options(
+@@ -726,7 +731,7 @@ pub(crate) fn run() -> eframe::Result<()> {
+                 screen_asked: None,
+             }))
+         }));
+-        fastframe_graphics::Graphics::new("Spotifast")
++        fastframe_graphics::Graphics::new(spotifast::spotify_compat::DISPLAY_NAME)
+             .help(spotifast::window::DOWNLOAD_PAGE)
+             .dialog(move |trouble| spotifast::window::no_window_dialog(locale, trouble))
+             .run_native(
+@@ -859,7 +864,7 @@ fn native_options(
          app_icon()
      };
      let viewport = egui::ViewportBuilder::default()
@@ -4155,7 +4155,7 @@ index 6ce15a8c9f87d56ac8cd3ede55dfe48b28288aea..68f419d19d5f7cc8fbb673671ff15e9e
          .with_app_id(app_id)
          .with_taskbar(true)
          .with_icon(icon);
-@@ -1362,7 +1367,9 @@ impl Shell {
+@@ -1366,7 +1371,9 @@ impl Shell {
                  MenuCommand::Back => Action::Back,
                  MenuCommand::Forward => Action::Forward,
                  MenuCommand::OpenRepo => {
@@ -4203,17 +4203,17 @@ index eb07d4a9e44b802de6023478feeb1b5ca022b3eb..c4669f443915534bbf829ba4bcd2cd06
  include!(concat!(env!("OUT_DIR"), "/catalogs.rs"));
  
 diff --git a/src/lib.rs b/src/lib.rs
-index b3ab6977cf491cb8c712c8bb8e2ba10fdaa48e7d..930785aa7ae160f5d9c804014bffb0b49627bed4 100644
+index 9029e617bd3a1242fa6486ac39dbdf0e15f8f622..225d2c5e8977b9fd89996d0ecee5c0975f23cac3 100644
 --- a/src/lib.rs
 +++ b/src/lib.rs
-@@ -51,6 +51,7 @@ pub mod single_instance;
- pub mod sink;
+@@ -53,6 +53,7 @@ pub mod sink;
  pub mod skin;
+ pub mod soloist;
  pub mod sonos;
 +pub mod spotify_compat;
+ mod storage;
  pub mod system_fonts;
  pub mod theme;
- pub mod thumbbar;
 diff --git a/src/mac_menu.rs b/src/mac_menu.rs
 index f37f9f2e9a84001367571eb95c0260516ddf4724..5ec91f41d4d6311e05b40c8d6f52e6ea9257635e 100644
 --- a/src/mac_menu.rs
@@ -5103,24 +5103,11 @@ index 0000000000000000000000000000000000000000..91721d8fb661db0cf9302f2ead2cbd8e
 +    }
 +    *guard = Some(state);
 +}
-diff --git a/src/ui/login.rs b/src/ui/login.rs
-index c599351be8a6bbf41944ed1441a1002ad3cbf655..a27d05df78665bdac4acf675569ad4ce4d392b95 100644
---- a/src/ui/login.rs
-+++ b/src/ui/login.rs
-@@ -72,7 +72,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui, connecting: bool) {
-                     let (logo, _) = ui.allocate_exact_size(Vec2::splat(72.0), egui::Sense::hover());
-                     theme::logo(ui, logo.center(), 72.0);
-                     ui.add_space(6.0);
--                    theme::text(ui, "Spotifast", theme::bold(30.0), palette.text);
-+                    theme::text(ui, crate::spotify_compat::DISPLAY_NAME, theme::bold(30.0), palette.text);
-                     theme::text(ui, gettext(locale, "A native Spotify client."), theme::regular(14.5), palette.secondary);
-                     ui.add_space(22.0);
-                     match &app.auth {
 diff --git a/src/ui/settings.rs b/src/ui/settings.rs
-index 86746c9b3ef7534cc79c110d3cc66cf1e9ea6085..c6c9c8381e448522b540f2b2770eabe00e10aa20 100644
+index 1b9d7cf1736fbff63738eb85127767582074828e..238a94543687863c3b70adf9e1c6a25bbafb9bf7 100644
 --- a/src/ui/settings.rs
 +++ b/src/ui/settings.rs
-@@ -126,7 +126,7 @@ fn eq_preset_controls(app: &mut App, ui: &mut egui::Ui, current: Option<&str>) {
+@@ -127,7 +127,7 @@ fn eq_preset_controls(app: &mut App, ui: &mut egui::Ui, current: Option<&str>) {
  /// The GitHub release page of the running version, opened by About's
  /// Release notes button. Every release is tagged `v` and its version.
  const RELEASE_NOTES_URL: &str = concat!(
@@ -5129,7 +5116,7 @@ index 86746c9b3ef7534cc79c110d3cc66cf1e9ea6085..c6c9c8381e448522b540f2b2770eabe0
      "/releases/tag/v",
      env!("CARGO_PKG_VERSION")
  );
-@@ -690,10 +690,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
+@@ -807,10 +807,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
          RowText::new(gettext(locale, "Playback settings applied"), "").when(!playback_dirty),
          RowText::new(
              download_updates.clone(),
@@ -5145,7 +5132,7 @@ index 86746c9b3ef7534cc79c110d3cc66cf1e9ea6085..c6c9c8381e448522b540f2b2770eabe0
          ),
          RowText::new(
              gettext(locale, "MacBook notch widget"),
-@@ -961,6 +962,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
+@@ -1081,6 +1082,13 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                  }
              });
              filtered_row(ui, &palette, &needle, &playback, &playback_rows[12], |ui| {
@@ -5159,7 +5146,7 @@ index 86746c9b3ef7534cc79c110d3cc66cf1e9ea6085..c6c9c8381e448522b540f2b2770eabe0
                  if widgets::switch(
                      ui,
                      &palette,
-@@ -2218,7 +2226,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
+@@ -2440,7 +2448,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
      let source_code = gettext(locale, "Source code");
      let about_rows = [
          RowText::new(
@@ -5172,7 +5159,7 @@ index 86746c9b3ef7534cc79c110d3cc66cf1e9ea6085..c6c9c8381e448522b540f2b2770eabe0
              built_with.clone(),
          ),
          RowText::new(
-@@ -2235,7 +2247,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
+@@ -2457,7 +2469,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                  ui.vertical(|ui| {
                      theme::text(
                          ui,
@@ -5185,7 +5172,7 @@ index 86746c9b3ef7534cc79c110d3cc66cf1e9ea6085..c6c9c8381e448522b540f2b2770eabe0
                          theme::semibold(15.0),
                          palette.text,
                      );
-@@ -2282,7 +2298,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
+@@ -2504,7 +2520,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                      .clicked()
                  {
                      ui.ctx()
@@ -5194,7 +5181,7 @@ index 86746c9b3ef7534cc79c110d3cc66cf1e9ea6085..c6c9c8381e448522b540f2b2770eabe0
                  }
              });
              ui.add_space(14.0);
-@@ -2726,7 +2742,7 @@ mod tests {
+@@ -3000,7 +3016,7 @@ mod tests {
          assert_eq!(
              RELEASE_NOTES_URL,
              format!(
@@ -5242,12 +5229,12 @@ index 13958b4fdcf973e7048e41aece3547d6fbf56311..3d05135dde135f7727d4c2db5911b731
                  });
              });
 diff --git a/src/updates.rs b/src/updates.rs
-index 1be30a0f2f62f4a885f0469731b1e6892e2688b0..96a399a6ba309e6dbf6af2a91758834370a7faf5 100644
+index 94d8370bd16dc93f46581484450019ae19956965..7438ec5a38bffe4120c709dd0f36359cd28b2f77 100644
 --- a/src/updates.rs
 +++ b/src/updates.rs
-@@ -12,22 +12,35 @@ pub use fastframe_update::{
- };
- use fastframe_update::{MacConfig, ReqwestTransport, UpdateConfig};
+@@ -16,22 +16,35 @@ use std::sync::Mutex;
+ type UpdaterCache = Mutex<Option<(crate::settings::ProxyConfig, Updater)>>;
+ static UPDATER: UpdaterCache = Mutex::new(None);
  
 +/// Non-notarized personal builds use an explicit GitHub download.
 +pub const MANUAL_DOWNLOADS: bool = cfg!(target_os = "macos");
@@ -5286,7 +5273,7 @@ index 1be30a0f2f62f4a885f0469731b1e6892e2688b0..96a399a6ba309e6dbf6af2a917588343
          "spotifast",
          env!("CARGO_PKG_VERSION"),
      )
-@@ -49,6 +62,18 @@ mod tests {
+@@ -140,6 +153,18 @@ mod tests {
          assert_eq!(CONFIG.current_version, env!("CARGO_PKG_VERSION"));
      }
  
@@ -5305,25 +5292,6 @@ index 1be30a0f2f62f4a885f0469731b1e6892e2688b0..96a399a6ba309e6dbf6af2a917588343
      #[test]
      fn updates_require_the_release_signing_key() {
          assert!(
-diff --git a/src/window.rs b/src/window.rs
-index 7bc12123452065e51682ba8be8c52e05eea08066..2aa30b91e16180d417f52779d4f6f26a37e40189 100644
---- a/src/window.rs
-+++ b/src/window.rs
-@@ -244,7 +244,13 @@ mod tests {
-         assert!(arm.text.contains("Compatibility Pack"));
- 
-         let x64 = missing_opengl_message(crate::i18n::Locale::English, false);
--        assert_eq!(x64.title, "Spotifast cannot open its window");
-+        assert_eq!(
-+            x64.title,
-+            format!(
-+                "{} cannot open its window",
-+                crate::spotify_compat::DISPLAY_NAME
-+            )
-+        );
-         assert_eq!(x64.page, "https://spotifast.rocks/download/");
-         assert!(x64.text.contains("OpenGL 2.0"));
-         assert!(x64.text.contains("virtual machine"));
 diff --git a/tests/packaging_macos.rs b/tests/packaging_macos.rs
 index d475d2ff1bb3f0887bd23046fdbed4f0ef11633c..c131da442b384d2cff3b48bbce62139a9283e278 100644
 --- a/tests/packaging_macos.rs

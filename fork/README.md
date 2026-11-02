@@ -51,6 +51,11 @@ SHA-256-Wert der angewendeten Änderungssammlung.
 
 ## Vorhandene Daten
 
+Ab Spotifast 0.14.2 ist für eine neue Web-Anmeldung eine eigene Spotify-App
+erforderlich. Frühere gespeicherte Freigaben werden weiterverwendet, solange
+Spotify sie akzeptiert. Beim ersten Start kann eine Spielerauswahl erscheinen:
+Für einen einzelnen Player-Prozess dort den eingebauten Player wählen.
+
 Die Profilidentität bleibt absichtlich unverändert:
 
 - Einstellungen und Verlauf: `~/Library/Application Support/me.paolino.spotifast`
@@ -94,7 +99,7 @@ Freigabe unter Canopy einmal aus- und wieder eingeschaltet werden.
 
 ## Entwicklung und Wiederaufbau
 
-Der erste Build ist auf Original `v0.14.1` gepinnt. Veröffentlicht wird derzeit
+Die aktuelle Änderungsbasis ist Original `v0.16.0`. Veröffentlicht wird derzeit
 für Apple silicon. MilkDrop bleibt enthalten; dessen eigener Visualisierungs-
 prozess und der bestehende Updatehelfer sind keine zusätzliche dauerhaft
 laufende Kompatibilitäts-App.
@@ -105,7 +110,7 @@ Nach Änderungen an der Integration:
 cargo fmt --all
 python3 fork/refresh_patch.py
 python3 fork/test_automation.py
-python3 fork/prepare.py --tag v0.14.1 --output /absolute/path/to/new-candidate
+python3 fork/prepare.py --tag v0.16.0 --output /absolute/path/to/new-candidate
 python3 fork/verify.py
 ```
 

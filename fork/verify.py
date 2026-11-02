@@ -37,7 +37,7 @@ def verify(root: Path):
         assert forbidden not in native, f'Unexpected runtime work: {forbidden}'
     assert 'App::new("spotifast", "me", "paolino", "spotifast")' in (root/'src/paths.rs').read_text()
     assert 'const SERVICE: &str = "rocks.spotifast.Spotifast"' in (root/'src/credentials.rs').read_text()
-    assert 'eframe::storage_dir("spotifast")' in entrypoint
+    assert 'eframe::storage_dir("spotifast")' in (root/'src/paths.rs').read_text()
     info = plistlib.loads((root/'packaging/macos/Info.plist').read_bytes())
     assert info['CFBundleName'] == info['CFBundleDisplayName'] == 'Spotify'
     assert info['OSAScriptingDefinition'] == 'Spotify.sdef'

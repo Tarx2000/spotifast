@@ -1,7 +1,7 @@
 {
   "upstream": "crmne/spotifast",
   "repository": "Tarx2000/spotifast",
-  "patch_base": "v0.14.1",
+  "patch_base": "v0.16.0",
   "revision": 2,
   "macos_bundle_id": "com.spotify.client",
   "macos_executable": "Spotify",

@@ -23,6 +23,7 @@ pub mod images;
 pub mod liked;
 pub mod limiter;
 pub mod link;
+pub mod local_tags;
 pub mod lyrics;
 #[cfg(target_os = "macos")]
 pub mod mac_links;
@@ -50,8 +51,10 @@ pub mod settings;
 pub mod single_instance;
 pub mod sink;
 pub mod skin;
+pub mod soloist;
 pub mod sonos;
 pub mod spotify_compat;
+mod storage;
 pub mod system_fonts;
 pub mod theme;
 pub mod thumbbar;

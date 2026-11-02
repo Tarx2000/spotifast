@@ -1,6 +1,6 @@
 {
-  "upstream_tag": "v0.14.1",
-  "upstream_commit": "3ce8b3f274717e973c2914a93f7255e45ced06dd",
-  "personal_version": "0.14.1002",
-  "patch_sha256": "640d2affd407063dcadaa2633bd200110f20d227313fc9c634c34c10b4e7c7db"
+  "upstream_tag": "v0.16.0",
+  "upstream_commit": "fdbb61230b78648b76ff53611b80d882caea8d73",
+  "personal_version": "0.16.2",
+  "patch_sha256": "b61cee5cbc61e31edc30c9b2bb5e5857bb2f02d181b86a5088bb38836293947a"
 }
