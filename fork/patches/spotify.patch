@@ -5305,6 +5305,25 @@ index 94d8370bd16dc93f46581484450019ae19956965..7438ec5a38bffe4120c709dd0f36359c
      #[test]
      fn updates_require_the_release_signing_key() {
          assert!(
+diff --git a/src/window.rs b/src/window.rs
+index 814e2bc59cd22458b8ee1372a4985a9f055600d0..1fb8ea2a7a5315f550166c0df972db014b2b4320 100644
+--- a/src/window.rs
++++ b/src/window.rs
+@@ -241,7 +241,13 @@ mod tests {
+                 Some(DOWNLOAD_PAGE),
+             ),
+         );
+-        assert_eq!(x64.title, "Spotifast cannot open its window");
++        assert_eq!(
++            x64.title,
++            format!(
++                "{} cannot open its window",
++                crate::spotify_compat::DISPLAY_NAME
++            )
++        );
+         assert_eq!(x64.link.as_deref(), Some(DOWNLOAD_PAGE));
+         assert!(x64.body.contains("OpenGL 2.0"));
+         assert!(x64.body.contains("virtual machine"));
 diff --git a/tests/packaging_macos.rs b/tests/packaging_macos.rs
 index d475d2ff1bb3f0887bd23046fdbed4f0ef11633c..c131da442b384d2cff3b48bbce62139a9283e278 100644
 --- a/tests/packaging_macos.rs

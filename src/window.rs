@@ -241,7 +241,13 @@ mod tests {
                 Some(DOWNLOAD_PAGE),
             ),
         );
-        assert_eq!(x64.title, "Spotifast cannot open its window");
+        assert_eq!(
+            x64.title,
+            format!(
+                "{} cannot open its window",
+                crate::spotify_compat::DISPLAY_NAME
+            )
+        );
         assert_eq!(x64.link.as_deref(), Some(DOWNLOAD_PAGE));
         assert!(x64.body.contains("OpenGL 2.0"));
         assert!(x64.body.contains("virtual machine"));
